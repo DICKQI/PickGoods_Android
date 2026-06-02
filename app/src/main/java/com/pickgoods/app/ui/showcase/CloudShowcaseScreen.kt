@@ -19,9 +19,11 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -65,6 +67,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -104,6 +107,7 @@ import com.pickgoods.app.ui.goods.GoodsListContent
 import com.pickgoods.app.ui.goods.GoodsListUiState
 import com.pickgoods.app.ui.goods.GoodsViewModel
 import com.pickgoods.app.ui.goods.components.resolveImageUrl
+import com.pickgoods.app.ui.navigation.BottomNavBarContentHeight
 import com.pickgoods.app.ui.theme.Gold
 import com.pickgoods.app.ui.theme.GoldSoft
 import com.pickgoods.app.ui.theme.PurpleSecondary
@@ -129,6 +133,11 @@ fun CloudShowcaseScreen(
         animationSpec = tween(180, easing = FastOutSlowInEasing),
         label = "goodsTabTopPadding"
     )
+    val density = LocalDensity.current
+    val bottomNavigationPadding = with(density) {
+        WindowInsets.navigationBars.getBottom(this).toDp()
+    }
+    val goodsBottomChromePadding = BottomNavBarContentHeight + bottomNavigationPadding
     val tabs = listOf("展柜", "谷仓", "统计看板")
 
     LaunchedEffect(activeTab) {
@@ -214,6 +223,7 @@ fun CloudShowcaseScreen(
                             onCreateClick = onCreateGoods,
                             onRetry = { goodsViewModel.refreshGoods() },
                             onChromeCompactChanged = { chromeCompact = it },
+                            bottomChromePadding = goodsBottomChromePadding,
                             modifier = Modifier.padding(top = goodsTopPadding)
                         )
                         2 -> StatsTab(

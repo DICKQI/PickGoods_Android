@@ -200,6 +200,7 @@ fun GoodsListContent(
     onCreateClick: () -> Unit = {},
     onRetry: () -> Unit,
     onChromeCompactChanged: (Boolean) -> Unit = {},
+    bottomChromePadding: Dp = 0.dp,
     modifier: Modifier = Modifier
 ) {
     var filterExpanded by remember { mutableStateOf(false) }
@@ -259,9 +260,14 @@ fun GoodsListContent(
         label = "goodsSearchHeight"
     )
     val gridBottomPadding by animateDpAsState(
-        targetValue = if (showFloatingPagination) 72.dp else 12.dp,
+        targetValue = bottomChromePadding + if (showFloatingPagination) 72.dp else 12.dp,
         animationSpec = tween(180, easing = FastOutSlowInEasing),
         label = "goodsGridBottomPadding"
+    )
+    val paginationBottomPadding by animateDpAsState(
+        targetValue = bottomChromePadding + 10.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "goodsPaginationBottomPadding"
     )
     val showSearchField = searchVisible || uiState.searchQuery.isNotBlank()
     val revealSearchConnection = remember(gridState, uiState.searchQuery) {
@@ -460,7 +466,12 @@ fun GoodsListContent(
                     totalCount = uiState.totalCount,
                     onPageChanged = changePage,
                     modifier = Modifier
-                        .padding(horizontal = 8.dp, vertical = 10.dp)
+                        .padding(
+                            start = 8.dp,
+                            top = 10.dp,
+                            end = 8.dp,
+                            bottom = paginationBottomPadding
+                        )
                 )
             }
         }

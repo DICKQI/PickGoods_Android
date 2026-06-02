@@ -13,6 +13,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -37,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -127,10 +130,16 @@ fun AppNavGraph(
                 }
             }
         ) { innerPadding ->
+            val layoutDirection = LocalLayoutDirection.current
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
+                    .padding(
+                        start = innerPadding.calculateStartPadding(layoutDirection),
+                        top = innerPadding.calculateTopPadding(),
+                        end = innerPadding.calculateEndPadding(layoutDirection),
+                        bottom = 0.dp
+                    )
             ) {
                 NavHost(
                     navController = navController,

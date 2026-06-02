@@ -55,6 +55,10 @@ data class BottomNavItem(
     val unselectedIcon: ImageVector
 )
 
+val BottomNavBarAccentHeight = 1.dp
+val BottomNavBarRouteHeight = 64.dp
+val BottomNavBarContentHeight = BottomNavBarAccentHeight + BottomNavBarRouteHeight
+
 @Composable
 fun BottomNavBar(
     currentRoute: String?,
@@ -76,13 +80,13 @@ fun BottomNavBar(
     ) {
         GoldAccentLine(
             modifier = Modifier
-                .height(1.dp)
+                .height(BottomNavBarAccentHeight)
                 .padding(horizontal = 26.dp)
         )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(64.dp)
+                .height(BottomNavBarRouteHeight)
                 .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
