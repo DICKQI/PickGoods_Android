@@ -94,7 +94,7 @@ fun CategoryScreen(
 }
 
 @Composable
-private fun CategoryContent(
+fun CategoryContent(
     state: MetadataUiState,
     onSearch: (String) -> Unit,
     onSave: (Category?, String, Int?, String?, Int?) -> Unit,

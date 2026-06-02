@@ -5,6 +5,9 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -49,6 +52,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -118,12 +122,25 @@ fun CloudShowcaseScreen(
     val showcaseState by showcaseViewModel.uiState.collectAsStateWithLifecycle()
     val goodsState by goodsViewModel.uiState.collectAsStateWithLifecycle()
     var activeTab by remember { mutableIntStateOf(1) }
+    var chromeCompact by remember { mutableStateOf(false) }
+    val compactChrome = activeTab == 1 && chromeCompact
+    val goodsTopPadding by animateDpAsState(
+        targetValue = if (compactChrome) 4.dp else 8.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "goodsTabTopPadding"
+    )
     val tabs = listOf("展柜", "谷仓", "统计看板")
+
+    LaunchedEffect(activeTab) {
+        if (activeTab != 1) {
+            chromeCompact = false
+        }
+    }
 
     Scaffold(
         topBar = {
             PickGoodsTopBar(
-                title = "✦ 拾谷 PickGoods",
+                title = "拾谷 PickGoods",
                 onSettingsClick = onSettingsClick,
                 onRefreshClick = {
                     when (activeTab) {
@@ -131,7 +148,8 @@ fun CloudShowcaseScreen(
                         1 -> goodsViewModel.refreshGoods()
                         else -> showcaseViewModel.refreshStats()
                     }
-                }
+                },
+                compact = compactChrome
             )
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -141,7 +159,13 @@ fun CloudShowcaseScreen(
                 CloudTabBar(
                     tabs = tabs,
                     activeTab = activeTab,
-                    onTabSelected = { activeTab = it }
+                    compact = compactChrome,
+                    onTabSelected = {
+                        activeTab = it
+                        if (it != 1) {
+                            chromeCompact = false
+                        }
+                    }
                 )
 
                 PickGoodsAnimatedContent(
@@ -189,7 +213,8 @@ fun CloudShowcaseScreen(
                             onGoodsClick = onGoodsClick,
                             onCreateClick = onCreateGoods,
                             onRetry = { goodsViewModel.refreshGoods() },
-                            modifier = Modifier.padding(top = 8.dp)
+                            onChromeCompactChanged = { chromeCompact = it },
+                            modifier = Modifier.padding(top = goodsTopPadding)
                         )
                         2 -> StatsTab(
                             state = showcaseState,
@@ -220,16 +245,43 @@ fun CloudShowcaseScreen(
 private fun CloudTabBar(
     tabs: List<String>,
     activeTab: Int,
+    compact: Boolean = false,
     onTabSelected: (Int) -> Unit
 ) {
+    val outerHorizontal by animateDpAsState(
+        targetValue = if (compact) 8.dp else 10.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "cloudTabsHorizontalPadding"
+    )
+    val outerVertical by animateDpAsState(
+        targetValue = if (compact) 2.dp else 5.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "cloudTabsVerticalPadding"
+    )
+    val cardRadius by animateDpAsState(
+        targetValue = if (compact) 11.dp else 14.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "cloudTabsRadius"
+    )
+    val rowPadding by animateDpAsState(
+        targetValue = if (compact) 1.dp else 2.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "cloudTabsRowPadding"
+    )
+    val tabVerticalPadding by animateDpAsState(
+        targetValue = if (compact) 4.dp else 7.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "cloudTabVerticalPadding"
+    )
+
     PickGoodsCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        radius = 14.dp
+            .padding(horizontal = outerHorizontal, vertical = outerVertical),
+        radius = cardRadius
     ) {
         Row(
-            modifier = Modifier.padding(2.dp),
+            modifier = Modifier.padding(rowPadding),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -254,13 +306,13 @@ private fun CloudTabBar(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 7.dp),
+                            .padding(horizontal = 8.dp, vertical = tabVerticalPadding),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = title,
                             color = contentColor,
-                            style = MaterialTheme.typography.labelLarge,
+                            style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
                         )
                     }

@@ -103,7 +103,7 @@ fun AppNavGraph(
         val isNetworkAvailable = rememberNetworkAvailable()
 
         val showBottomBar = currentRoute in listOf(
-            Routes.SHOWCASE, Routes.LOCATION, Routes.IP_CHARACTER, Routes.CATEGORY, Routes.THEME
+            Routes.SHOWCASE, Routes.LOCATION, Routes.IP_CHARACTER, Routes.THEME
         )
         val showOfflineBanner = authState.isLoggedIn &&
             currentRoute != Routes.LOGIN &&
@@ -121,7 +121,8 @@ fun AppNavGraph(
                                 launchSingleTop = true
                                 restoreState = true
                             }
-                        }
+                        },
+                        onCreateGoodsClick = { navController.navigate(Routes.GOODS_NEW) }
                     )
                 }
             }

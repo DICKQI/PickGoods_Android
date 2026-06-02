@@ -102,7 +102,7 @@ fun IPCharacterScreen(
     Scaffold(
         topBar = {
             PickGoodsTopBar(
-                title = "IP作品与角色",
+                title = "资料管理",
                 onSettingsClick = onSettingsClick,
                 onRefreshClick = viewModel::refresh
             )
@@ -112,19 +112,26 @@ fun IPCharacterScreen(
         PickGoodsScreen(modifier = Modifier.padding(paddingValues)) {
             Column(modifier = Modifier.fillMaxSize()) {
                 MetadataTabBar(
-                    tabs = listOf("IP作品", "角色"),
+                    tabs = listOf("IP作品", "角色", "品类"),
                     activeTab = activeTab,
                     onTabSelected = { activeTab = it }
                 )
                 PickGoodsAnimatedContent(targetState = activeTab, modifier = Modifier.weight(1f)) { tab ->
-                    if (tab == 0) {
-                        IPListTab(
+                    when (tab) {
+                        0 -> IPListTab(
                             state = state,
                             viewModel = viewModel,
                             onOpenCharactersTab = { activeTab = 1 }
                         )
-                    } else {
-                        CharacterListTab(state = state, viewModel = viewModel)
+                        1 -> CharacterListTab(state = state, viewModel = viewModel)
+                        else -> CategoryContent(
+                            state = state,
+                            onSearch = viewModel::onSearchChanged,
+                            onSave = viewModel::saveCategory,
+                            onDelete = viewModel::deleteCategory,
+                            onMove = viewModel::moveCategory,
+                            onRefresh = viewModel::refresh
+                        )
                     }
                 }
             }

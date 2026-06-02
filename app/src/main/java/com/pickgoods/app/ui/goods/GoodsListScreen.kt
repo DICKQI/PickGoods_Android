@@ -1,5 +1,15 @@
 package com.pickgoods.app.ui.goods
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -19,26 +29,33 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -54,18 +71,26 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -89,6 +114,7 @@ import com.pickgoods.app.ui.theme.PurpleSoft
 import com.pickgoods.app.ui.theme.SurfaceGray
 import com.pickgoods.app.ui.theme.TextLighter
 import com.pickgoods.app.ui.theme.White
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -100,14 +126,16 @@ fun GoodsListScreen(
     viewModel: GoodsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var chromeCompact by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             if (showTopBar) {
                 PickGoodsTopBar(
-                    title = "✦ 拾谷 PickGoods",
+                    title = "拾谷 PickGoods",
                     onSettingsClick = onSettingsClick,
-                    onRefreshClick = { viewModel.refreshGoods() }
+                    onRefreshClick = { viewModel.refreshGoods() },
+                    compact = chromeCompact
                 )
             }
         },
@@ -138,7 +166,8 @@ fun GoodsListScreen(
                 onPageChanged = viewModel::setPage,
                 onGoodsClick = onGoodsClick,
                 onCreateClick = onCreateClick,
-                onRetry = { viewModel.refreshGoods() }
+                onRetry = { viewModel.refreshGoods() },
+                onChromeCompactChanged = { chromeCompact = it }
             )
         }
     }
@@ -170,47 +199,152 @@ fun GoodsListContent(
     onGoodsClick: (String) -> Unit = {},
     onCreateClick: () -> Unit = {},
     onRetry: () -> Unit,
+    onChromeCompactChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var showFilterSheet by remember { mutableStateOf(false) }
+    var filterExpanded by remember { mutableStateOf(false) }
+    var searchVisible by remember { mutableStateOf(false) }
     var showMultiDisplaySheet by remember { mutableStateOf(false) }
     val showPagination = uiState.viewMode == GoodsViewMode.STANDARD && uiState.totalPages > 1
     val selectedGoods = remember(uiState.selectedGoodsById) { uiState.selectedGoodsById.values.toList() }
+    val gridState = rememberLazyGridState()
+    val coroutineScope = rememberCoroutineScope()
+    val contentState = when {
+        uiState.isLoading && uiState.goods.isEmpty() -> "loading"
+        uiState.error != null && uiState.goods.isEmpty() -> "error"
+        uiState.goods.isEmpty() -> "empty"
+        else -> "list"
+    }
+    val compactControls by remember(contentState) {
+        derivedStateOf {
+            contentState == "list" &&
+                (gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > 72)
+        }
+    }
+    val showFloatingPagination by remember(showPagination, contentState) {
+        derivedStateOf {
+            if (!showPagination || contentState != "list") {
+                false
+            } else {
+                val layoutInfo = gridState.layoutInfo
+                val totalItems = layoutInfo.totalItemsCount
+                val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+                totalItems > 0 && lastVisibleIndex >= totalItems - 3
+            }
+        }
+    }
+    val controlCardRadius by animateDpAsState(
+        targetValue = if (compactControls) 12.dp else 14.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "goodsControlsRadius"
+    )
+    val controlHorizontalPadding by animateDpAsState(
+        targetValue = if (compactControls) 7.dp else 8.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "goodsControlsHorizontalPadding"
+    )
+    val controlVerticalPadding by animateDpAsState(
+        targetValue = if (compactControls) 5.dp else 7.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "goodsControlsVerticalPadding"
+    )
+    val controlSpacing by animateDpAsState(
+        targetValue = if (compactControls) 5.dp else 7.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "goodsControlsSpacing"
+    )
+    val searchHeight by animateDpAsState(
+        targetValue = if (compactControls) 42.dp else 46.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "goodsSearchHeight"
+    )
+    val gridBottomPadding by animateDpAsState(
+        targetValue = if (showFloatingPagination) 72.dp else 12.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "goodsGridBottomPadding"
+    )
+    val showSearchField = searchVisible || uiState.searchQuery.isNotBlank()
+    val revealSearchConnection = remember(gridState, uiState.searchQuery) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput) {
+                    return Offset.Zero
+                }
+                val atTop = gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset == 0
+                if (atTop && available.y > 10f) {
+                    searchVisible = true
+                } else if (available.y < -10f && uiState.searchQuery.isBlank()) {
+                    searchVisible = false
+                }
+                return Offset.Zero
+            }
+        }
+    }
+    val changePage: (Int) -> Unit = { page ->
+        onPageChanged(page)
+        coroutineScope.launch {
+            gridState.animateScrollToItem(0)
+        }
+    }
+
+    LaunchedEffect(compactControls) {
+        onChromeCompactChanged(compactControls)
+        if (compactControls) {
+            filterExpanded = false
+            if (uiState.searchQuery.isBlank()) {
+                searchVisible = false
+            }
+        }
+    }
 
     Column(
         modifier = modifier
             .fillMaxSize()
+            .nestedScroll(revealSearchConnection)
             .padding(horizontal = 8.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        PickGoodsCard(
-            modifier = Modifier.fillMaxWidth(),
-            radius = 14.dp
+        AnimatedVisibility(
+            visible = showSearchField,
+            enter = expandVertically(animationSpec = tween(190, easing = FastOutSlowInEasing)) + fadeIn(tween(150)),
+            exit = shrinkVertically(animationSpec = tween(170, easing = FastOutSlowInEasing)) + fadeOut(tween(130))
         ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp)
+            PickGoodsCard(
+                modifier = Modifier.fillMaxWidth(),
+                radius = controlCardRadius
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier.padding(horizontal = controlHorizontalPadding, vertical = controlVerticalPadding),
+                    verticalArrangement = Arrangement.spacedBy(controlSpacing)
                 ) {
                     OutlinedTextField(
                         value = uiState.searchQuery,
                         onValueChange = onSearchQueryChanged,
-                        placeholder = { Text("搜索谷子名称、IP、角色...") },
+                        placeholder = {
+                            Text(
+                                text = if (compactControls) "搜索谷子" else "搜名称 / IP / 角色",
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                         trailingIcon = {
                             if (uiState.searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { onSearchQueryChanged("") }) {
+                                IconButton(
+                                    onClick = {
+                                        onSearchQueryChanged("")
+                                        searchVisible = false
+                                    }
+                                ) {
                                     Icon(Icons.Default.Clear, contentDescription = null)
                                 }
                             }
                         },
                         singleLine = true,
                         modifier = Modifier
-                            .weight(1f)
-                            .height(46.dp),
+                            .fillMaxWidth()
+                            .height(searchHeight),
                         shape = PickGoodsShape.Control,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -220,108 +354,72 @@ fun GoodsListContent(
                             cursorColor = MaterialTheme.colorScheme.primary
                         )
                     )
-                    CompactToolbarButton(
-                        label = "筛选",
-                        icon = Icons.Outlined.Tune,
-                        onClick = { showFilterSheet = true }
-                    )
-                    CompactToolbarButton(
-                        label = "新增",
-                        icon = Icons.Outlined.Add,
-                        emphasized = true,
-                        onClick = onCreateClick
-                    )
-                }
-
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    item {
-                        SummaryPill(
-                            text = activeFilterSummary(uiState),
-                            highlighted = uiState.groupBy != null || uiState.viewMode == GoodsViewMode.SIMILAR_RANDOM
-                        )
-                    }
-                    items(statusFilters) { item ->
-                        val selected = if (item.value == null) {
-                            uiState.statusFilter == null && uiState.statusIn == null
-                        } else {
-                            uiState.statusFilter == item.value && uiState.statusIn == null
-                        }
-                        CompactFilterChip(
-                            selected = selected,
-                            onClick = { onStatusFilterChanged(item.value) },
-                            label = item.label
-                        )
-                    }
-                    items(officialFilters) { item ->
-                        CompactFilterChip(
-                            selected = uiState.officialFilter == item.value,
-                            onClick = { onOfficialFilterChanged(item.value) },
-                            label = if (item.value == null) "官非" else item.label
-                        )
-                    }
-                    item {
-                        SelectionModeChip(
-                            active = uiState.selectionMode,
-                            count = selectedGoods.size,
-                            onClick = {
-                                if (uiState.selectionMode && selectedGoods.isNotEmpty()) {
-                                    showMultiDisplaySheet = true
-                                } else {
-                                    onEnterSelectionMode()
-                                }
-                            }
-                        )
-                    }
-                    if (uiState.selectionMode) {
-                        item {
-                            SelectionExitChip(onClick = onExitSelectionMode)
-                        }
-                    }
-                }
-
-                if (uiState.selectionMode) {
-                    SelectionStatusBar(
-                        selectedCount = selectedGoods.size,
-                        onDisplay = {
-                            if (selectedGoods.isNotEmpty()) {
-                                showMultiDisplaySheet = true
-                            }
-                        },
-                        onClear = onClearGoodsSelection
-                    )
                 }
             }
+        }
+
+        AnimatedVisibility(
+            visible = uiState.selectionMode,
+            enter = expandVertically(animationSpec = tween(180, easing = FastOutSlowInEasing)) + fadeIn(tween(160)),
+            exit = shrinkVertically(animationSpec = tween(160, easing = FastOutSlowInEasing)) + fadeOut(tween(140))
+        ) {
+            SelectionStatusBar(
+                selectedCount = selectedGoods.size,
+                onDisplay = {
+                    if (selectedGoods.isNotEmpty()) {
+                        showMultiDisplaySheet = true
+                    }
+                },
+                onClear = onClearGoodsSelection
+            )
+        }
+
+        AnimatedVisibility(
+            visible = !compactControls,
+            enter = expandVertically(animationSpec = tween(180, easing = FastOutSlowInEasing)) + fadeIn(tween(160)),
+            exit = shrinkVertically(animationSpec = tween(160, easing = FastOutSlowInEasing)) + fadeOut(tween(140))
+        ) {
+            GoodsInlineFilterPanel(
+                uiState = uiState,
+                expanded = filterExpanded,
+                onExpandedChange = { filterExpanded = it },
+                onStatusSelectionChanged = onStatusSelectionChanged,
+                onOfficialFilterChanged = onOfficialFilterChanged,
+                onIpFilterChanged = onIpFilterChanged,
+                onCharacterFilterChanged = onCharacterFilterChanged,
+                onCategoryFilterChanged = onCategoryFilterChanged,
+                onThemeFilterChanged = onThemeFilterChanged,
+                onLocationFilterChanged = onLocationFilterChanged,
+                onGroupByChanged = onGroupByChanged,
+                onViewModeChanged = onViewModeChanged,
+                onSimilarSeedStrategyChanged = onSimilarSeedStrategyChanged,
+                onResetFilters = onResetFilters,
+                onRefreshMetadata = onRefreshMetadata
+            )
         }
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
         ) {
-            val contentState = when {
-                uiState.isLoading && uiState.goods.isEmpty() -> "loading"
-                uiState.error != null && uiState.goods.isEmpty() -> "error"
-                uiState.goods.isEmpty() -> "empty"
-                else -> "list"
-            }
-
             PickGoodsAnimatedContent(targetState = contentState, modifier = Modifier.fillMaxSize()) { state ->
                 when (state) {
                     "loading" -> {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(190.dp),
-                        contentPadding = PaddingValues(bottom = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(6) {
-                            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                                ShimmerBlock(modifier = Modifier.fillMaxWidth().aspectRatio(0.86f), radius = 16.dp)
-                                ShimmerBlock(modifier = Modifier.fillMaxWidth().height(18.dp), radius = 8.dp)
-                                ShimmerBlock(modifier = Modifier.fillMaxWidth(0.72f).height(14.dp), radius = 8.dp)
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(158.dp),
+                            contentPadding = PaddingValues(bottom = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(6) {
+                                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                    ShimmerBlock(modifier = Modifier.fillMaxWidth().aspectRatio(0.86f), radius = 16.dp)
+                                    ShimmerBlock(modifier = Modifier.fillMaxWidth().height(18.dp), radius = 8.dp)
+                                    ShimmerBlock(modifier = Modifier.fillMaxWidth(0.72f).height(14.dp), radius = 8.dp)
+                                }
                             }
                         }
                     }
-                }
 
                     "error" -> {
                         ErrorMessage(
@@ -335,7 +433,8 @@ fun GoodsListContent(
                     else -> {
                         GoodsGrid(
                             uiState = uiState,
-                            bottomPadding = if (showPagination) 58.dp else 10.dp,
+                            state = gridState,
+                            bottomPadding = gridBottomPadding,
                             onGoodsClick = onGoodsClick,
                             onToggleGoodsSelection = onToggleGoodsSelection
                         )
@@ -343,37 +442,28 @@ fun GoodsListContent(
                 }
             }
 
-            if (showPagination) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showFloatingPagination,
+                enter = slideInVertically(
+                    animationSpec = tween(240, easing = FastOutSlowInEasing),
+                    initialOffsetY = { it + 18 }
+                ) + fadeIn(tween(180)),
+                exit = slideOutVertically(
+                    animationSpec = tween(180, easing = FastOutSlowInEasing),
+                    targetOffsetY = { it + 18 }
+                ) + fadeOut(tween(150)),
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
                 GoodsPaginationDock(
                     page = uiState.page,
                     totalPages = uiState.totalPages,
                     totalCount = uiState.totalCount,
-                    onPageChanged = onPageChanged,
+                    onPageChanged = changePage,
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
                         .padding(horizontal = 8.dp, vertical = 10.dp)
                 )
             }
         }
-    }
-
-    if (showFilterSheet) {
-        GoodsFilterSheet(
-            uiState = uiState,
-            onDismiss = { showFilterSheet = false },
-            onStatusSelectionChanged = onStatusSelectionChanged,
-            onOfficialFilterChanged = onOfficialFilterChanged,
-            onIpFilterChanged = onIpFilterChanged,
-            onCharacterFilterChanged = onCharacterFilterChanged,
-            onCategoryFilterChanged = onCategoryFilterChanged,
-            onThemeFilterChanged = onThemeFilterChanged,
-            onLocationFilterChanged = onLocationFilterChanged,
-            onGroupByChanged = onGroupByChanged,
-            onViewModeChanged = onViewModeChanged,
-            onSimilarSeedStrategyChanged = onSimilarSeedStrategyChanged,
-            onResetFilters = onResetFilters,
-            onRefreshMetadata = onRefreshMetadata
-        )
     }
 
     if (showMultiDisplaySheet) {
@@ -390,6 +480,7 @@ fun GoodsListContent(
 @Composable
 private fun GoodsGrid(
     uiState: GoodsListUiState,
+    state: LazyGridState,
     bottomPadding: androidx.compose.ui.unit.Dp,
     onGoodsClick: (String) -> Unit,
     onToggleGoodsSelection: (GoodsListItem) -> Unit
@@ -400,10 +491,11 @@ private fun GoodsGrid(
     val selectedIds = uiState.selectedGoodsById.keys
 
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(190.dp),
+        columns = GridCells.Adaptive(158.dp),
+        state = state,
         contentPadding = PaddingValues(bottom = bottomPadding),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         if (uiState.groupBy.isNullOrBlank()) {
             items(uiState.goods, key = { it.id }) { goods ->
@@ -495,24 +587,29 @@ private fun GoodsPaginationDock(
     onPageChanged: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    PickGoodsCard(
-        modifier = modifier,
-        radius = 16.dp
+    Surface(
+        modifier = modifier
+            .widthIn(max = 214.dp)
+            .clip(PickGoodsShape.Pill),
+        shape = PickGoodsShape.Pill,
+        color = White.copy(alpha = 0.96f),
+        border = BorderStroke(1.dp, Gold.copy(alpha = 0.22f)),
+        shadowElevation = 8.dp
     ) {
         Row(
             modifier = Modifier
                 .background(
                     Brush.horizontalGradient(
                         listOf(
-                            White.copy(alpha = 0.96f),
-                            SurfaceGray.copy(alpha = 0.92f),
-                            White.copy(alpha = 0.96f)
+                            White.copy(alpha = 0.98f),
+                            GoldSoft.copy(alpha = 0.44f),
+                            White.copy(alpha = 0.98f)
                         )
                     )
                 )
-                .padding(horizontal = 7.dp, vertical = 5.dp),
+                .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             PaginationIconButton(
                 enabled = page > 1,
@@ -520,20 +617,38 @@ private fun GoodsPaginationDock(
                 icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                 contentDescription = "上一页"
             )
-            Text(
-                text = "第 $page / $totalPages 页 · 共 $totalCount 件",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Text(
+                    text = "$page / $totalPages",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+                Surface(
+                    shape = PickGoodsShape.Pill,
+                    color = White.copy(alpha = 0.72f),
+                    border = BorderStroke(1.dp, Gold.copy(alpha = 0.18f))
+                ) {
+                    Text(
+                        text = "$totalCount 件",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Gold,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                    )
+                }
+            }
             PaginationIconButton(
                 enabled = page < totalPages,
                 onClick = { onPageChanged((page + 1).coerceAtMost(totalPages)) },
                 icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = "下一页"
+                contentDescription = "下一页",
+                emphasized = true
             )
         }
     }
@@ -745,17 +860,39 @@ private fun PaginationIconButton(
     enabled: Boolean,
     onClick: () -> Unit,
     icon: ImageVector,
-    contentDescription: String
+    contentDescription: String,
+    size: Dp = 30.dp,
+    emphasized: Boolean = false
 ) {
+    val containerColor = when {
+        !enabled -> SurfaceGray.copy(alpha = 0.72f)
+        emphasized -> PurpleSecondary
+        else -> GoldSoft.copy(alpha = 0.9f)
+    }
+    val iconColor = when {
+        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.36f)
+        emphasized -> White
+        else -> Gold
+    }
+
     Surface(
+        modifier = Modifier
+            .size(size)
+            .clip(PickGoodsShape.Pill)
+            .clickable(enabled = enabled, onClick = onClick),
         shape = PickGoodsShape.Pill,
-        color = if (enabled) PurpleSecondary.copy(alpha = 0.14f) else SurfaceGray,
+        color = containerColor,
+        shadowElevation = if (enabled && emphasized) 2.dp else 0.dp
     ) {
-        IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(36.dp)) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                tint = if (enabled) PurpleSecondary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f)
+                tint = iconColor,
+                modifier = Modifier.size(17.dp)
             )
         }
     }
@@ -766,6 +903,7 @@ private fun CompactToolbarButton(
     label: String,
     icon: ImageVector,
     emphasized: Boolean = false,
+    size: Dp = 44.dp,
     onClick: () -> Unit
 ) {
     val container = if (emphasized) PurpleSecondary else SurfaceGray.copy(alpha = 0.8f)
@@ -775,7 +913,7 @@ private fun CompactToolbarButton(
         color = container,
         shadowElevation = if (emphasized) 2.dp else 0.dp,
         modifier = Modifier
-            .size(44.dp)
+            .size(size)
             .clip(PickGoodsShape.Pill)
             .clickable(onClick = onClick)
     ) {
@@ -955,6 +1093,363 @@ private fun SelectionStatusBar(
             }
         }
     }
+}
+
+@Composable
+private fun GoodsInlineFilterPanel(
+    uiState: GoodsListUiState,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onStatusSelectionChanged: (Set<String>) -> Unit,
+    onOfficialFilterChanged: (Boolean?) -> Unit,
+    onIpFilterChanged: (Int?) -> Unit,
+    onCharacterFilterChanged: (Int?) -> Unit,
+    onCategoryFilterChanged: (Int?) -> Unit,
+    onThemeFilterChanged: (Int?) -> Unit,
+    onLocationFilterChanged: (Int?) -> Unit,
+    onGroupByChanged: (String?) -> Unit,
+    onViewModeChanged: (GoodsViewMode) -> Unit,
+    onSimilarSeedStrategyChanged: (String) -> Unit,
+    onResetFilters: () -> Unit,
+    onRefreshMetadata: () -> Unit
+) {
+    val selectedStatuses = currentStatusSet(uiState)
+    val filteredCharacters = uiState.characters.filter {
+        uiState.selectedIpId == null || it.ip.id == uiState.selectedIpId || it.ipId == uiState.selectedIpId
+    }
+
+    PickGoodsCard(
+        modifier = Modifier.fillMaxWidth(),
+        radius = 12.dp,
+        borderColor = Gold.copy(alpha = 0.24f)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Brush.horizontalGradient(listOf(White, GoldSoft.copy(alpha = 0.72f), White)))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "筛选谷子",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Gold,
+                    modifier = Modifier.weight(1f)
+                )
+                InlineModeToggle(
+                    viewMode = uiState.viewMode,
+                    onViewModeChanged = onViewModeChanged
+                )
+                HeaderIconButton(
+                    icon = Icons.Outlined.Refresh,
+                    contentDescription = "重置筛选",
+                    onClick = onResetFilters
+                )
+                HeaderIconButton(
+                    icon = if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                    contentDescription = if (expanded) "收起筛选" else "展开筛选",
+                    onClick = { onExpandedChange(!expanded) }
+                )
+            }
+
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(animationSpec = tween(180, easing = FastOutSlowInEasing)) + fadeIn(tween(160)),
+                exit = shrinkVertically(animationSpec = tween(160, easing = FastOutSlowInEasing)) + fadeOut(tween(140))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 500.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    InlineFilterDropdown(
+                        label = "IP作品",
+                        placeholder = "选择IP",
+                        selectedLabel = uiState.ips.firstOrNull { it.id == uiState.selectedIpId }?.name,
+                        options = listOf(FilterItem<Int?>("全部", null)) + uiState.ips.map { FilterItem<Int?>(it.name, it.id) },
+                        onSelected = onIpFilterChanged
+                    )
+                    InlineFilterDropdown(
+                        label = "角色",
+                        placeholder = if (uiState.selectedIpId == null) "先选择IP" else "选择角色",
+                        selectedLabel = selectedCharacterLabel(uiState),
+                        options = listOf(FilterItem<Int?>("全部", null)) + filteredCharacters.map { FilterItem<Int?>(it.name, it.id) },
+                        enabled = uiState.selectedIpId != null,
+                        onSelected = onCharacterFilterChanged
+                    )
+                    InlineFilterDropdown(
+                        label = "品类",
+                        placeholder = "选择品类",
+                        selectedLabel = uiState.categories.firstOrNull { it.id == uiState.selectedCategoryId }?.let { it.pathName ?: it.name },
+                        options = listOf(FilterItem<Int?>("全部", null)) + uiState.categories.map { FilterItem<Int?>(it.pathName ?: it.name, it.id) },
+                        onSelected = onCategoryFilterChanged
+                    )
+                    InlineFilterDropdown(
+                        label = "主题",
+                        placeholder = "选择主题",
+                        selectedLabel = uiState.themes.firstOrNull { it.id == uiState.selectedThemeId }?.name,
+                        options = listOf(FilterItem<Int?>("全部", null)) + uiState.themes.map { FilterItem<Int?>(it.name, it.id) },
+                        onSelected = onThemeFilterChanged
+                    )
+                    InlineStatusSelector(
+                        selectedStatuses = selectedStatuses,
+                        onStatusSelectionChanged = onStatusSelectionChanged
+                    )
+                    InlineFilterDropdown(
+                        label = "是否官谷",
+                        placeholder = "全部",
+                        selectedLabel = officialFilters.firstOrNull { it.value == uiState.officialFilter }?.label,
+                        options = officialFilters,
+                        onSelected = onOfficialFilterChanged
+                    )
+                    InlineFilterDropdown(
+                        label = "位置",
+                        placeholder = "选择位置",
+                        selectedLabel = uiState.locations.firstOrNull { it.id == uiState.selectedLocationId }?.let { it.pathName ?: it.name },
+                        options = listOf(FilterItem<Int?>("全部", null)) + uiState.locations.map { FilterItem<Int?>(it.pathName ?: it.name, it.id) },
+                        onSelected = onLocationFilterChanged
+                    )
+                    InlineFilterDropdown(
+                        label = "分组显示",
+                        placeholder = "不分组",
+                        selectedLabel = groupByOptions.firstOrNull { it.value == uiState.groupBy }?.label,
+                        options = groupByOptions,
+                        onSelected = onGroupByChanged
+                    )
+                    if (uiState.viewMode == GoodsViewMode.SIMILAR_RANDOM) {
+                        InlineFilterDropdown(
+                            label = "相似策略",
+                            placeholder = "均衡",
+                            selectedLabel = similarSeedStrategyOptions.firstOrNull { it.value == uiState.similarSeedStrategy }?.label,
+                            options = similarSeedStrategyOptions,
+                            onSelected = onSimilarSeedStrategyChanged
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = onRefreshMetadata, enabled = !uiState.isMetadataLoading) {
+                            Text(if (uiState.isMetadataLoading) "加载中..." else "刷新选项")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InlineModeToggle(
+    viewMode: GoodsViewMode,
+    onViewModeChanged: (GoodsViewMode) -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(9.dp),
+        color = SurfaceGray.copy(alpha = 0.82f)
+    ) {
+        Row(modifier = Modifier.padding(3.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            InlineModeOption(
+                label = "标准",
+                selected = viewMode == GoodsViewMode.STANDARD,
+                onClick = { onViewModeChanged(GoodsViewMode.STANDARD) }
+            )
+            InlineModeOption(
+                label = "相似",
+                selected = viewMode == GoodsViewMode.SIMILAR_RANDOM,
+                onClick = { onViewModeChanged(GoodsViewMode.SIMILAR_RANDOM) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun InlineModeOption(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(7.dp),
+        color = if (selected) White else SurfaceGray.copy(alpha = 0f),
+        shadowElevation = if (selected) 1.dp else 0.dp,
+        modifier = Modifier
+            .height(28.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Box(modifier = Modifier.padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+            Text(
+                text = label,
+                color = if (selected) Gold else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun HeaderIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = SurfaceGray.copy(alpha = 0.82f),
+        modifier = Modifier
+            .size(32.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(17.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun <T> InlineFilterDropdown(
+    label: String,
+    placeholder: String,
+    selectedLabel: String?,
+    options: List<FilterItem<T>>,
+    enabled: Boolean = true,
+    onSelected: (T) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.SemiBold
+        )
+        Box {
+            Surface(
+                shape = PickGoodsShape.Control,
+                color = if (enabled) White else SurfaceGray.copy(alpha = 0.72f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = if (enabled) 0.28f else 0.16f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(38.dp)
+                    .clip(PickGoodsShape.Control)
+                    .clickable(enabled = enabled) { expanded = true }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = selectedLabel ?: placeholder,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (selectedLabel == null) TextLighter else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        imageVector = Icons.Outlined.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 0.74f else 0.3f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier
+                    .widthIn(min = 260.dp)
+                    .heightIn(max = 280.dp)
+                    .background(White)
+            ) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = option.label,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        onClick = {
+                            expanded = false
+                            onSelected(option.value)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InlineStatusSelector(
+    selectedStatuses: Set<String>,
+    onStatusSelectionChanged: (Set<String>) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text(
+            text = "状态",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.SemiBold
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            statusFilters.filter { it.value != null && it.value != "draft" }.forEach { item ->
+                val status = item.value ?: return@forEach
+                val selected = status in selectedStatuses
+                Surface(
+                    shape = PickGoodsShape.Control,
+                    color = if (selected) GoldSoft else SurfaceGray.copy(alpha = 0.62f),
+                    border = BorderStroke(1.dp, if (selected) Gold.copy(alpha = 0.42f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .clip(PickGoodsShape.Control)
+                        .clickable {
+                            val next = if (selected) selectedStatuses - status else selectedStatuses + status
+                            onStatusSelectionChanged(next)
+                        }
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = item.label,
+                            color = if (selected) Gold else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun selectedCharacterLabel(uiState: GoodsListUiState): String? {
+    val selectedIds = uiState.selectedCharacterIds
+    if (selectedIds.size > 1) {
+        return "${selectedIds.size} 个角色"
+    }
+    val selectedId = selectedIds.singleOrNull() ?: uiState.selectedCharacterId
+    return uiState.characters.firstOrNull { it.id == selectedId }?.name
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
