@@ -3,6 +3,7 @@ package com.pickgoods.app.data.repository
 import android.util.Log
 import com.pickgoods.app.data.api.AuthApi
 import com.pickgoods.app.data.local.TokenManager
+import com.pickgoods.app.data.model.AuthTokenResponse
 import com.pickgoods.app.data.model.LoginRequest
 import com.pickgoods.app.data.model.RegisterRequest
 import com.pickgoods.app.data.model.UserInfo
@@ -29,8 +30,7 @@ class AuthRepository @Inject constructor(
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body != null) {
-                    tokenManager.saveToken(body.accessToken)
-                    AuthResult.Success(UserInfo(id = 0, username = username, role = ""))
+                    completeTokenLogin(body, username)
                 } else {
                     AuthResult.Error("登录响应解析失败", response.code())
                 }
@@ -49,8 +49,7 @@ class AuthRepository @Inject constructor(
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body != null) {
-                    tokenManager.saveToken(body.accessToken)
-                    AuthResult.Success(UserInfo(id = 0, username = username, role = ""))
+                    completeTokenLogin(body, username)
                 } else {
                     AuthResult.Error("注册响应解析失败", response.code())
                 }
@@ -92,6 +91,20 @@ class AuthRepository @Inject constructor(
     }
 
     suspend fun isLoggedIn(): Boolean = tokenManager.getToken() != null
+
+    private suspend fun completeTokenLogin(
+        tokenResponse: AuthTokenResponse,
+        fallbackUsername: String
+    ): AuthResult {
+        tokenManager.saveToken(tokenResponse.accessToken)
+        return when (val currentUser = fetchCurrentUser()) {
+            is AuthResult.Success -> currentUser
+            is AuthResult.Error -> {
+                Log.w(TAG, "Token saved but /me failed: ${currentUser.message}")
+                AuthResult.Success(UserInfo(id = 0, username = fallbackUsername, role = null))
+            }
+        }
+    }
 
     private fun parseError(errorBody: String?): String {
         if (errorBody == null) return "请求失败"

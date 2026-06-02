@@ -3,8 +3,10 @@ package com.pickgoods.app.data.api
 import com.pickgoods.app.data.model.PaginatedResponse
 import com.pickgoods.app.data.model.Showcase
 import com.pickgoods.app.data.model.ShowcaseAddGoodsRequest
+import com.pickgoods.app.data.model.ShowcaseDetail
 import com.pickgoods.app.data.model.ShowcaseGoods
 import com.pickgoods.app.data.model.ShowcaseMoveGoodsRequest
+import com.pickgoods.app.data.model.ShowcaseMoveGoodsResponse
 import com.pickgoods.app.data.model.ShowcaseRemoveGoodsRequest
 import com.pickgoods.app.data.model.ShowcaseRequest
 import okhttp3.MultipartBody
@@ -16,6 +18,7 @@ import retrofit2.http.Multipart
 import retrofit2.http.PATCH
 import retrofit2.http.Part
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -39,7 +42,7 @@ interface ShowcaseApi {
     ): Response<PaginatedResponse<Showcase>>
 
     @GET("api/showcases/{id}/")
-    suspend fun getShowcaseDetail(@Path("id") id: String): Response<Showcase>
+    suspend fun getShowcaseDetail(@Path("id") id: String): Response<ShowcaseDetail>
 
     @POST("api/showcases/")
     suspend fun createShowcase(@Body request: ShowcaseRequest): Response<Showcase>
@@ -49,6 +52,12 @@ interface ShowcaseApi {
         @Path("id") id: String,
         @Body request: ShowcaseRequest
     ): Response<Showcase>
+
+    @PUT("api/showcases/{id}/")
+    suspend fun updateShowcase(
+        @Path("id") id: String,
+        @Body request: ShowcaseRequest
+    ): Response<ShowcaseDetail>
 
     @Multipart
     @POST("api/showcases/{id}/upload-cover-image/")
@@ -79,5 +88,5 @@ interface ShowcaseApi {
     suspend fun moveGoods(
         @Path("id") id: String,
         @Body request: ShowcaseMoveGoodsRequest
-    ): Response<Map<String, String>>
+    ): Response<ShowcaseMoveGoodsResponse>
 }

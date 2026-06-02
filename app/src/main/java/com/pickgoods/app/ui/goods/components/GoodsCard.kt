@@ -2,6 +2,7 @@ package com.pickgoods.app.ui.goods.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,8 +12,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material3.HorizontalDivider
@@ -34,6 +37,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.pickgoods.app.data.model.GoodsListItem
 import com.pickgoods.app.ui.common.PickGoodsCard
+import com.pickgoods.app.ui.common.PickGoodsShape
+import com.pickgoods.app.ui.theme.BorderGold
 import com.pickgoods.app.ui.theme.Gold
 import com.pickgoods.app.ui.theme.GoldSoft
 import com.pickgoods.app.ui.theme.PurpleSecondary
@@ -46,20 +51,31 @@ fun GoodsCard(
     goods: GoodsListItem,
     baseUrl: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selectable: Boolean = false,
+    selected: Boolean = false,
+    onSelect: (() -> Unit)? = null
 ) {
     val imageUrl = resolveImageUrl(goods.mainPhoto, baseUrl)
 
     PickGoodsCard(
         modifier = modifier,
         radius = 16.dp,
-        onClick = onClick
+        borderColor = if (selected) Gold.copy(alpha = 0.82f) else BorderGold.copy(alpha = 0.35f),
+        pressedScale = if (selectable) 0.975f else 0.985f,
+        onClick = {
+            if (selectable) {
+                onSelect?.invoke()
+            } else {
+                onClick()
+            }
+        }
     ) {
         Column {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f)
+                    .aspectRatio(0.82f)
                     .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
                     .background(Brush.linearGradient(listOf(GoldSoft, PurpleSoft)))
             ) {
@@ -107,17 +123,42 @@ fun GoodsCard(
                             .padding(8.dp)
                     )
                 }
+
+                StatusBadge(
+                    text = statusLabel(goods.status),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(8.dp)
+                )
+
+                if (selected) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .border(BorderStroke(2.dp, Gold.copy(alpha = 0.78f)), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                            .background(Gold.copy(alpha = 0.08f))
+                    )
+                }
+
+                if (selectable) {
+                    SelectionBadge(
+                        selected = selected,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(10.dp)
+                    )
+                }
             }
 
             Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 Text(
                     text = goods.name,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
 
@@ -130,24 +171,12 @@ fun GoodsCard(
                         ?: "-"
                 )
 
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f))
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(999.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Text(
-                            text = statusLabel(goods.status),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
-
                     CategoryTag(
                         text = goods.category.name,
                         color = goods.category.colorTag?.let { parseHexColor(it) } ?: Gold,
@@ -182,6 +211,34 @@ fun GoodsCard(
 }
 
 @Composable
+private fun SelectionBadge(
+    selected: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = PickGoodsShape.Pill,
+        color = if (selected) Gold else Color.Black.copy(alpha = 0.36f),
+        border = BorderStroke(2.dp, Color.White.copy(alpha = 0.9f)),
+        shadowElevation = 3.dp
+    ) {
+        Box(
+            modifier = Modifier.size(30.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = "已选择",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun MetaRow(label: String, value: String) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -192,12 +249,14 @@ private fun MetaRow(label: String, value: String) {
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.68f)
         ) {
             Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = TextLight,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-            )
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = TextLight,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .width(34.dp)
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+        )
         }
         Text(
             text = value,
@@ -219,16 +278,38 @@ private fun AttrBadge(
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(6.dp),
-        color = Color.White.copy(alpha = 0.88f),
+        color = color.copy(alpha = 0.56f),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.38f)),
         shadowElevation = 2.dp
     ) {
         Text(
             text = text,
             fontSize = 11.sp,
-            color = color,
+            color = Color.White,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun StatusBadge(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(6.dp),
+        color = Color.White.copy(alpha = 0.9f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.42f)),
+        shadowElevation = 2.dp
+    ) {
+        Text(
+            text = text,
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
         )
     }
 }

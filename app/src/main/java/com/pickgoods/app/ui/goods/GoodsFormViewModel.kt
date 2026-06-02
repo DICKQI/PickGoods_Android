@@ -88,7 +88,7 @@ class GoodsFormViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             val ipsDeferred = async { metadataRepository.getIPs() }
             val charactersDeferred = async { metadataRepository.getCharacters() }
-            val categoriesDeferred = async { metadataRepository.getCategories() }
+            val categoriesDeferred = async { metadataRepository.getCategoryTree() }
             val themesDeferred = async { metadataRepository.getThemes() }
             val locationsDeferred = async { locationRepository.getNodes() }
             val baseUrlDeferred = async { tokenManager.getBaseUrl() }
@@ -146,7 +146,10 @@ class GoodsFormViewModel @Inject constructor(
     }
 
     fun updateName(value: String) = update { it.copy(name = value) }
-    fun updateIp(id: Int?) = update { it.copy(ipId = id, characterIds = emptySet()) }
+    fun updateIp(id: Int?) {
+        update { it.copy(ipId = id, characterIds = emptySet()) }
+        id?.let(::loadCharactersForIp)
+    }
     fun toggleCharacter(id: Int) = update {
         val next = if (id in it.characterIds) it.characterIds - id else it.characterIds + id
         it.copy(characterIds = next)
@@ -189,6 +192,45 @@ class GoodsFormViewModel @Inject constructor(
         }
     }
 
+    fun deleteAdditionalPhotos(photoIds: Set<Int>) {
+        val goodsId = editingId ?: _uiState.value.savedGoodsId ?: return
+        if (photoIds.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isUploadingAdditionalPhotos = true, error = null) }
+            when (val result = goodsRepository.deleteAdditionalPhotos(goodsId, photoIds.toList())) {
+                is GoodsResult.Success -> _uiState.update {
+                    it.copy(
+                        isUploadingAdditionalPhotos = false,
+                        currentMainPhoto = result.data.mainPhoto,
+                        currentAdditionalPhotos = result.data.additionalPhotos
+                    )
+                }
+                is GoodsResult.Error -> _uiState.update {
+                    it.copy(isUploadingAdditionalPhotos = false, error = result.message)
+                }
+            }
+        }
+    }
+
+    fun updateExistingAdditionalPhotoLabel(photoId: Int, label: String) {
+        val goodsId = editingId ?: _uiState.value.savedGoodsId ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isUploadingAdditionalPhotos = true, error = null) }
+            when (val result = goodsRepository.updateAdditionalPhotoLabel(goodsId, listOf(photoId), label)) {
+                is GoodsResult.Success -> _uiState.update {
+                    it.copy(
+                        isUploadingAdditionalPhotos = false,
+                        currentMainPhoto = result.data.mainPhoto,
+                        currentAdditionalPhotos = result.data.additionalPhotos
+                    )
+                }
+                is GoodsResult.Error -> _uiState.update {
+                    it.copy(isUploadingAdditionalPhotos = false, error = result.message)
+                }
+            }
+        }
+    }
+
     fun dismissDuplicateDialog() {
         pendingCreateRequest = null
         update {
@@ -201,14 +243,40 @@ class GoodsFormViewModel @Inject constructor(
     }
 
     fun save() {
+        saveWithStatus(_uiState.value.status)
+    }
+
+    fun saveAsDraft() {
+        saveWithStatus("draft", syncStatusToUi = true)
+    }
+
+    fun publish() {
+        val currentStatus = _uiState.value.status
+        val publishStatus = if (currentStatus == "draft") "in_cabinet" else currentStatus
+        saveWithStatus(publishStatus, syncStatusToUi = currentStatus != publishStatus)
+    }
+
+    private fun saveWithStatus(targetStatus: String, syncStatusToUi: Boolean = false) {
         val state = _uiState.value
         val ipId = state.ipId
         val categoryId = state.categoryId
         if (state.name.isBlank() || ipId == null || categoryId == null ||
-            (state.status != "draft" && state.characterIds.isEmpty())
+            (targetStatus != "draft" && state.characterIds.isEmpty())
         ) {
-            _uiState.update { it.copy(error = "请填写名称、IP、品类；非草稿至少选择一个角色") }
+            _uiState.update {
+                it.copy(
+                    error = if (targetStatus == "draft") {
+                        "草稿至少需要填写名称、IP 和品类"
+                    } else {
+                        "发布前请填写名称、IP、品类，并至少选择一个角色"
+                    }
+                )
+            }
             return
+        }
+
+        if (syncStatusToUi) {
+            _uiState.update { it.copy(status = targetStatus) }
         }
 
         val request = GoodsCreateRequest(
@@ -218,7 +286,7 @@ class GoodsFormViewModel @Inject constructor(
             categoryId = categoryId,
             themeId = state.themeId,
             location = state.locationId,
-            status = state.status,
+            status = targetStatus,
             quantity = state.quantity.toIntOrNull() ?: 1,
             price = state.price.ifBlank { null },
             purchaseDate = state.purchaseDate.ifBlank { null },
@@ -350,5 +418,19 @@ class GoodsFormViewModel @Inject constructor(
 
     private fun update(block: (GoodsFormUiState) -> GoodsFormUiState) {
         _uiState.update(block)
+    }
+
+    private fun loadCharactersForIp(ipId: Int) {
+        viewModelScope.launch {
+            when (val result = metadataRepository.getIPCharacters(ipId)) {
+                is GoodsResult.Success -> _uiState.update { current ->
+                    val others = current.characters.filterNot { character ->
+                        character.ip.id == ipId || character.ipId == ipId
+                    }
+                    current.copy(characters = (others + result.data).distinctBy { it.id })
+                }
+                is GoodsResult.Error -> _uiState.update { it.copy(error = result.message) }
+            }
+        }
     }
 }

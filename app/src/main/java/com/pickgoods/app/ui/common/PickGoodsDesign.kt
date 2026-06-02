@@ -61,8 +61,8 @@ object PickGoodsMotion {
 
 @Stable
 object PickGoodsShape {
-    val Card = RoundedCornerShape(20.dp)
-    val Control = RoundedCornerShape(12.dp)
+    val Card = RoundedCornerShape(16.dp)
+    val Control = RoundedCornerShape(10.dp)
     val Pill = RoundedCornerShape(999.dp)
 }
 
@@ -98,8 +98,10 @@ fun PickGoodsScreen(
 @Composable
 fun PickGoodsCard(
     modifier: Modifier = Modifier,
-    radius: Dp = 20.dp,
-    pressedScale: Float = 0.985f,
+    radius: Dp = 16.dp,
+    pressedScale: Float = 0.982f,
+    borderColor: Color = BorderGold.copy(alpha = 0.35f),
+    containerColor: Color = White,
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -111,7 +113,7 @@ fun PickGoodsCard(
         label = "cardScale"
     )
     val shadowElevation by animateDpAsState(
-        targetValue = if (pressed) 4.dp else 10.dp,
+        targetValue = if (pressed) 2.dp else 6.dp,
         animationSpec = tween(PickGoodsMotion.Fast, easing = FastOutSlowInEasing),
         label = "cardShadow"
     )
@@ -140,9 +142,9 @@ fun PickGoodsCard(
                 ambientColor = Gold.copy(alpha = 0.08f),
                 spotColor = Gold.copy(alpha = 0.12f)
             )
-            .border(BorderStroke(1.dp, BorderGold.copy(alpha = 0.35f)), shape),
+            .border(BorderStroke(1.dp, borderColor), shape),
         shape = shape,
-        colors = CardDefaults.cardColors(containerColor = White),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         content = content
     )

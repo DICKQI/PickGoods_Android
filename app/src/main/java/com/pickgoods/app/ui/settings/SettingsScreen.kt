@@ -8,17 +8,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -41,19 +42,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pickgoods.app.ui.common.MobileHeaderCard
+import com.pickgoods.app.ui.common.MobileInfoTile
+import com.pickgoods.app.ui.common.MobileSectionHeader
+import com.pickgoods.app.ui.common.PickGoodsBackTopBar
 import com.pickgoods.app.ui.common.PickGoodsCard
 import com.pickgoods.app.ui.common.PickGoodsScreen
 import com.pickgoods.app.ui.common.PickGoodsShape
-import com.pickgoods.app.ui.common.PickGoodsTopBar
+import com.pickgoods.app.ui.theme.Gold
+import com.pickgoods.app.ui.theme.PurpleSecondary
 import com.pickgoods.app.ui.theme.TextLight
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    onBack: () -> Unit,
     onLogout: () -> Unit,
     onNavigateToAdmin: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
@@ -93,7 +101,10 @@ fun SettingsScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            PickGoodsTopBar(title = "设置")
+            PickGoodsBackTopBar(
+                title = "设置",
+                onBackClick = onBack
+            )
         }
     ) { paddingValues ->
         PickGoodsScreen(modifier = Modifier.padding(paddingValues)) {
@@ -101,12 +112,37 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(scrollState)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+            MobileHeaderCard(
+                title = "应用设置",
+                subtitle = "服务器连接、账号权限与调试信息"
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                MobileInfoTile(
+                    label = "后端",
+                    value = if (uiState.baseUrl.isBlank()) "未配置" else "已配置",
+                    subtitle = uiState.baseUrl,
+                    accent = Gold,
+                    modifier = Modifier.weight(1f)
+                )
+                MobileInfoTile(
+                    label = "账号",
+                    value = uiState.username ?: "未登录",
+                    subtitle = roleLabel(uiState.role),
+                    accent = PurpleSecondary,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            MobileSectionHeader(
+                title = "连接配置",
+                subtitle = "修改地址后重新登录可刷新网络实例",
+                accent = PurpleSecondary
+            )
             // 1. 后端地址配置卡片
-            PickGoodsCard(radius = 18.dp) {
-                Column(modifier = Modifier.padding(16.dp)) {
+            PickGoodsCard(radius = 16.dp) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             Icons.Default.Settings,
@@ -186,56 +222,62 @@ fun SettingsScreen(
                     HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row {
-                            Text("当前后端地址：", fontWeight = FontWeight.Medium, fontSize = 13.sp)
-                            Text(
-                                text = uiState.baseUrl,
-                                fontSize = 13.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                        Row {
-                            Text("默认后端地址：", fontWeight = FontWeight.Medium, fontSize = 13.sp)
-                            Text(
-                                text = uiState.defaultBaseUrl,
-                                fontSize = 13.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = TextLight
-                            )
-                        }
+                        SettingValueRow("当前后端地址", uiState.baseUrl)
+                        SettingValueRow("默认后端地址", uiState.defaultBaseUrl, muted = true)
                     }
                 }
             }
 
+            MobileSectionHeader(
+                title = "使用提示",
+                subtitle = "按运行环境选择后端地址",
+                accent = Gold
+            )
             // 2. 使用说明卡片
-            PickGoodsCard(radius = 18.dp) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.Info,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("使用说明", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        HelpItem("后端地址应为完整的 URL，包含协议（http:// 或 https://）和端口号")
-                        HelpItem("示例：http://127.0.0.1:8000 或 https://api.example.com")
-                        HelpItem("模拟器中使用 10.0.2.2 访问宿主机")
-                        HelpItem("真机调试使用局域网 IP，如 192.168.1.100:8000")
-                    }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    MobileInfoTile(
+                        label = "模拟器",
+                        value = "10.0.2.2",
+                        subtitle = "访问宿主机",
+                        accent = Gold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MobileInfoTile(
+                        label = "真机",
+                        value = "局域网 IP",
+                        subtitle = "同一网络",
+                        accent = PurpleSecondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    MobileInfoTile(
+                        label = "格式",
+                        value = "http(s)",
+                        subtitle = "含协议端口",
+                        accent = PurpleSecondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MobileInfoTile(
+                        label = "生效",
+                        value = "重新登录",
+                        subtitle = "刷新连接",
+                        accent = Gold,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
 
             // 3. 账号信息卡片（仅登录后显示）
             if (uiState.username != null) {
-                PickGoodsCard(radius = 18.dp) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                MobileSectionHeader(
+                    title = "账号",
+                    subtitle = "权限与退出登录",
+                    accent = PurpleSecondary
+                )
+                PickGoodsCard(radius = 16.dp) {
+                    Column(modifier = Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 Icons.Default.Person,
@@ -268,14 +310,14 @@ fun SettingsScreen(
 
                         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             if (uiState.isAdmin) {
                                 Button(
                                     onClick = onNavigateToAdmin,
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Icon(
                                         Icons.Default.AdminPanelSettings,
@@ -288,7 +330,7 @@ fun SettingsScreen(
                             OutlinedButton(
                                 onClick = { viewModel.refreshUserInfo() },
                                 enabled = !uiState.isRefreshing,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.fillMaxWidth()
                             ) {
                                 Icon(
                                     Icons.Default.Refresh,
@@ -299,13 +341,13 @@ fun SettingsScreen(
                             }
                             OutlinedButton(
                                 onClick = { viewModel.showLogoutConfirm() },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.fillMaxWidth(),
                                 colors = ButtonDefaults.outlinedButtonColors(
                                     contentColor = MaterialTheme.colorScheme.error
                                 )
                             ) {
                                 Icon(
-                                    Icons.Outlined.Logout,
+                                    Icons.AutoMirrored.Outlined.Logout,
                                     contentDescription = null,
                                     modifier = Modifier.padding(end = 6.dp)
                                 )
@@ -316,7 +358,7 @@ fun SettingsScreen(
                 }
             } else {
                 // 未登录提示
-                PickGoodsCard(radius = 18.dp) {
+                PickGoodsCard(radius = 16.dp) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -339,18 +381,8 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun HelpItem(text: String) {
-    Text(
-        text = "• $text",
-        fontSize = 13.sp,
-        color = TextLight,
-        lineHeight = 20.sp
-    )
-}
-
-@Composable
 private fun InfoRow(label: String, value: String) {
-    Row {
+    Row(verticalAlignment = Alignment.Top) {
         Text(
             text = "$label：",
             fontWeight = FontWeight.Medium,
@@ -360,7 +392,30 @@ private fun InfoRow(label: String, value: String) {
         Text(
             text = value,
             fontSize = 14.sp,
-            fontFamily = FontFamily.Monospace
+            fontFamily = FontFamily.Monospace,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun SettingValueRow(label: String, value: String, muted: Boolean = false) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(
+            text = label,
+            fontWeight = FontWeight.Medium,
+            fontSize = 13.sp
+        )
+        Text(
+            text = value,
+            fontSize = 13.sp,
+            fontFamily = FontFamily.Monospace,
+            color = if (muted) TextLight else MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }

@@ -1,6 +1,7 @@
 package com.pickgoods.app.di
 
 import com.pickgoods.app.data.api.AuthApi
+import com.pickgoods.app.data.api.AdminApi
 import com.pickgoods.app.data.api.GoodsApi
 import com.pickgoods.app.data.api.LocationApi
 import com.pickgoods.app.data.api.MetadataApi
@@ -19,6 +20,10 @@ object ApiModule {
     @Provides
     @Singleton
     fun provideAuthApi(retrofit: Retrofit): AuthApi = retrofit.create(AuthApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideAdminApi(retrofit: Retrofit): AdminApi = retrofit.create(AdminApi::class.java)
 
     @Provides
     @Singleton

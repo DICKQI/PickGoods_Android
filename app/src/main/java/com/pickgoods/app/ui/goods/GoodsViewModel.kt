@@ -41,6 +41,7 @@ data class GoodsListUiState(
     val isMetadataLoading: Boolean = false,
     val selectedIpId: Int? = null,
     val selectedCharacterId: Int? = null,
+    val selectedCharacterIds: Set<Int> = emptySet(),
     val selectedCategoryId: Int? = null,
     val selectedThemeId: Int? = null,
     val selectedLocationId: Int? = null,
@@ -49,6 +50,9 @@ data class GoodsListUiState(
     val officialFilter: Boolean? = null,
     val groupBy: String? = null,
     val viewMode: GoodsViewMode = GoodsViewMode.STANDARD,
+    val similarSeedStrategy: String = "diverse",
+    val selectionMode: Boolean = false,
+    val selectedGoodsById: Map<String, GoodsListItem> = emptyMap(),
     val baseUrl: String = TokenManager.DEFAULT_BASE_URL
 )
 
@@ -88,19 +92,23 @@ class GoodsViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
 
             val state = _uiState.value
+            val characterIds = state.selectedCharacterIds.takeIf { it.isNotEmpty() }?.toList()
+            val singleCharacterId = if (characterIds == null) state.selectedCharacterId else null
             val result = if (state.viewMode == GoodsViewMode.SIMILAR_RANDOM) {
                 goodsRepo.getSimilarRandomList(
                     page = 1,
                     pageSize = state.pageSize,
                     search = state.searchQuery.ifBlank { null },
                     ip = state.selectedIpId,
-                    character = state.selectedCharacterId,
+                    character = singleCharacterId,
+                    characterIds = characterIds,
                     category = state.selectedCategoryId,
                     theme = state.selectedThemeId,
                     location = state.selectedLocationId,
                     status = state.statusFilter,
                     statusIn = state.statusIn,
-                    isOfficial = state.officialFilter
+                    isOfficial = state.officialFilter,
+                    seedStrategy = state.similarSeedStrategy
                 )
             } else {
                 goodsRepo.getList(
@@ -108,7 +116,8 @@ class GoodsViewModel @Inject constructor(
                     pageSize = state.pageSize,
                     search = state.searchQuery.ifBlank { null },
                     ip = state.selectedIpId,
-                    character = state.selectedCharacterId,
+                    character = singleCharacterId,
+                    characterIds = characterIds,
                     category = state.selectedCategoryId,
                     theme = state.selectedThemeId,
                     location = state.selectedLocationId,
@@ -144,18 +153,22 @@ class GoodsViewModel @Inject constructor(
             viewModelScope.launch {
                 _uiState.update { it.copy(isLoading = true, error = null) }
                 val state = _uiState.value
+                val characterIds = state.selectedCharacterIds.takeIf { it.isNotEmpty() }?.toList()
+                val singleCharacterId = if (characterIds == null) state.selectedCharacterId else null
                 when (val result = goodsRepo.getSimilarRandomList(
                     page = 1,
                     pageSize = state.pageSize,
                     search = state.searchQuery.ifBlank { null },
                     ip = state.selectedIpId,
-                    character = state.selectedCharacterId,
+                    character = singleCharacterId,
+                    characterIds = characterIds,
                     category = state.selectedCategoryId,
                     theme = state.selectedThemeId,
                     location = state.selectedLocationId,
                     status = state.statusFilter,
                     statusIn = state.statusIn,
                     isOfficial = state.officialFilter,
+                    seedStrategy = state.similarSeedStrategy,
                     refresh = true
                 )) {
                     is GoodsResult.Success -> {
@@ -219,14 +232,33 @@ class GoodsViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 selectedIpId = id,
-                selectedCharacterId = null
+                selectedCharacterId = null,
+                selectedCharacterIds = emptySet()
             )
         }
+        id?.let(::loadCharactersForIp)
         loadGoods(page = 1)
     }
 
     fun setCharacterFilter(id: Int?) {
-        _uiState.update { it.copy(selectedCharacterId = id) }
+        _uiState.update { current ->
+            if (id == null) {
+                current.copy(
+                    selectedCharacterId = null,
+                    selectedCharacterIds = emptySet()
+                )
+            } else {
+                val next = if (id in current.selectedCharacterIds) {
+                    current.selectedCharacterIds - id
+                } else {
+                    current.selectedCharacterIds + id
+                }
+                current.copy(
+                    selectedCharacterId = next.singleOrNull(),
+                    selectedCharacterIds = next
+                )
+            }
+        }
         loadGoods(page = 1)
     }
 
@@ -260,12 +292,24 @@ class GoodsViewModel @Inject constructor(
         loadGoods(page = 1)
     }
 
+    fun setSimilarSeedStrategy(strategy: String) {
+        _uiState.update {
+            it.copy(
+                similarSeedStrategy = strategy,
+                viewMode = GoodsViewMode.SIMILAR_RANDOM,
+                groupBy = null
+            )
+        }
+        loadGoods(page = 1)
+    }
+
     fun resetFilters() {
         _uiState.update {
             it.copy(
                 searchQuery = "",
                 selectedIpId = null,
                 selectedCharacterId = null,
+                selectedCharacterIds = emptySet(),
                 selectedCategoryId = null,
                 selectedThemeId = null,
                 selectedLocationId = null,
@@ -273,10 +317,49 @@ class GoodsViewModel @Inject constructor(
                 statusIn = null,
                 officialFilter = null,
                 groupBy = null,
-                viewMode = GoodsViewMode.STANDARD
+                viewMode = GoodsViewMode.STANDARD,
+                similarSeedStrategy = "diverse"
             )
         }
         loadGoods(page = 1)
+    }
+
+    fun enterSelectionMode() {
+        _uiState.update { it.copy(selectionMode = true) }
+    }
+
+    fun exitSelectionMode(clearSelection: Boolean = true) {
+        _uiState.update {
+            it.copy(
+                selectionMode = false,
+                selectedGoodsById = if (clearSelection) emptyMap() else it.selectedGoodsById
+            )
+        }
+    }
+
+    fun toggleGoodsSelection(goods: GoodsListItem) {
+        _uiState.update { current ->
+            val next = current.selectedGoodsById.toMutableMap()
+            if (next.containsKey(goods.id)) {
+                next.remove(goods.id)
+            } else {
+                next[goods.id] = goods
+            }
+            current.copy(
+                selectionMode = true,
+                selectedGoodsById = next
+            )
+        }
+    }
+
+    fun removeGoodsSelection(id: String) {
+        _uiState.update { current ->
+            current.copy(selectedGoodsById = current.selectedGoodsById - id)
+        }
+    }
+
+    fun clearGoodsSelection() {
+        _uiState.update { it.copy(selectedGoodsById = emptyMap()) }
     }
 
     fun refreshMetadata() {
@@ -292,7 +375,7 @@ class GoodsViewModel @Inject constructor(
             _uiState.update { it.copy(isMetadataLoading = true) }
             val ipsDeferred = async { metadataRepository.getIPs() }
             val charactersDeferred = async { metadataRepository.getCharacters() }
-            val categoriesDeferred = async { metadataRepository.getCategories() }
+            val categoriesDeferred = async { metadataRepository.getCategoryTree() }
             val themesDeferred = async { metadataRepository.getThemes() }
             val locationsDeferred = async { locationRepository.getNodes() }
 
@@ -315,6 +398,20 @@ class GoodsViewModel @Inject constructor(
                         .firstOrNull()
                         ?.message
                 )
+            }
+        }
+    }
+
+    private fun loadCharactersForIp(ipId: Int) {
+        viewModelScope.launch {
+            when (val result = metadataRepository.getIPCharacters(ipId)) {
+                is GoodsResult.Success -> _uiState.update { current ->
+                    val others = current.characters.filterNot { character ->
+                        character.ip.id == ipId || character.ipId == ipId
+                    }
+                    current.copy(characters = (others + result.data).distinctBy { it.id })
+                }
+                is GoodsResult.Error -> Unit
             }
         }
     }

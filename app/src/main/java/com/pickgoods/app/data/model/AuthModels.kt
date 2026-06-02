@@ -21,5 +21,5 @@ data class AuthTokenResponse(
 data class UserInfo(
     val id: Int,
     val username: String,
-    val role: String
+    val role: String? = null
 )

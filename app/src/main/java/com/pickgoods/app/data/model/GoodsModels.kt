@@ -79,6 +79,31 @@ data class CategoryRequest(
     val order: Int? = null
 )
 
+data class MetadataOrderItem(
+    val id: Int,
+    val order: Int
+)
+
+data class IPBatchUpdateOrderRequest(
+    val items: List<MetadataOrderItem>
+)
+
+data class IPBatchUpdateOrderResponse(
+    val detail: String? = null,
+    @SerializedName("updated_count") val updatedCount: Int = 0,
+    val ips: List<IP> = emptyList()
+)
+
+data class CategoryBatchUpdateOrderRequest(
+    val items: List<MetadataOrderItem>
+)
+
+data class CategoryBatchUpdateOrderResponse(
+    val detail: String? = null,
+    @SerializedName("updated_count") val updatedCount: Int = 0,
+    val categories: List<Category> = emptyList()
+)
+
 data class ThemeRequest(
     val name: String,
     val description: String? = null
@@ -176,6 +201,12 @@ data class GoodsMoveRequest(
     val position: String // "before" | "after"
 )
 
+data class GoodsMoveResponse(
+    val detail: String? = null,
+    val id: String? = null,
+    @SerializedName("new_order") val newOrder: Long? = null
+)
+
 // --- Showcase ---
 
 data class Showcase(
@@ -189,6 +220,18 @@ data class Showcase(
     @SerializedName("updated_at") val updatedAt: String = "",
     @SerializedName("goods_count") val goodsCount: Int? = null,
     @SerializedName("preview_photos") val previewPhotos: List<String>? = null
+)
+
+data class ShowcaseDetail(
+    val id: String,
+    val name: String,
+    val description: String? = null,
+    @SerializedName("cover_image") val coverImage: String? = null,
+    val order: Long = 0,
+    @SerializedName("is_public") val isPublic: Boolean = true,
+    @SerializedName("created_at") val createdAt: String = "",
+    @SerializedName("updated_at") val updatedAt: String = "",
+    @SerializedName("showcase_goods") val showcaseGoods: List<ShowcaseGoods> = emptyList()
 )
 
 data class ShowcaseRequest(
@@ -221,6 +264,12 @@ data class ShowcaseMoveGoodsRequest(
     val position: String
 )
 
+data class ShowcaseMoveGoodsResponse(
+    val detail: String? = null,
+    val id: String? = null,
+    @SerializedName("new_order") val newOrder: Long? = null
+)
+
 // --- Location ---
 
 data class StorageNode(
@@ -243,14 +292,29 @@ data class StorageNodeRequest(
 // --- Stats ---
 
 data class GoodsStatsResponse(
-    val overview: GoodsStatsOverview,
-    val distributions: GoodsStatsDistributions? = null
+    val meta: GoodsStatsMeta? = null,
+    val overview: GoodsStatsOverview = GoodsStatsOverview(),
+    val distributions: GoodsStatsDistributions? = null,
+    val trends: GoodsStatsTrends? = null
+)
+
+data class GoodsStatsMeta(
+    val top: Int = 10,
+    @SerializedName("group_by") val groupBy: String = "month",
+    @SerializedName("purchase_start") val purchaseStart: String? = null,
+    @SerializedName("purchase_end") val purchaseEnd: String? = null,
+    @SerializedName("created_start") val createdStart: String? = null,
+    @SerializedName("created_end") val createdEnd: String? = null
 )
 
 data class GoodsStatsOverview(
     @SerializedName("goods_count") val goodsCount: Int = 0,
     @SerializedName("quantity_sum") val quantitySum: Int = 0,
     @SerializedName("value_sum") val valueSum: String = "0",
+    @SerializedName("with_price_count") val withPriceCount: Int = 0,
+    @SerializedName("missing_price_count") val missingPriceCount: Int = 0,
+    @SerializedName("with_purchase_date_count") val withPurchaseDateCount: Int = 0,
+    @SerializedName("missing_purchase_date_count") val missingPurchaseDateCount: Int = 0,
     @SerializedName("with_location_count") val withLocationCount: Int = 0,
     @SerializedName("missing_location_count") val missingLocationCount: Int = 0,
     @SerializedName("with_main_photo_count") val withMainPhotoCount: Int = 0,
@@ -260,8 +324,11 @@ data class GoodsStatsOverview(
 data class GoodsStatsDistributions(
     val status: List<GoodsStatusDistributionItem>? = null,
     @SerializedName("is_official") val isOfficial: List<GoodsOfficialDistributionItem>? = null,
+    @SerializedName("ip_subject_type") val ipSubjectType: List<GoodsSubjectTypeDistributionItem>? = null,
     @SerializedName("category_top") val categoryTop: List<GoodsCategoryTopItem>? = null,
-    @SerializedName("ip_top") val ipTop: List<GoodsIPTopItem>? = null
+    @SerializedName("ip_top") val ipTop: List<GoodsIPTopItem>? = null,
+    @SerializedName("character_top") val characterTop: List<GoodsCharacterTopItem>? = null,
+    @SerializedName("location_top") val locationTop: List<GoodsLocationTopItem>? = null
 )
 
 data class GoodsStatusDistributionItem(
@@ -278,10 +345,18 @@ data class GoodsOfficialDistributionItem(
     @SerializedName("quantity_sum") val quantitySum: Int = 0
 )
 
+data class GoodsSubjectTypeDistributionItem(
+    @SerializedName("ip__subject_type") val subjectType: Int? = null,
+    val label: String = "未知",
+    @SerializedName("goods_count") val goodsCount: Int = 0,
+    @SerializedName("quantity_sum") val quantitySum: Int = 0
+)
+
 data class GoodsCategoryTopItem(
     @SerializedName("category_id") val categoryId: Int,
     @SerializedName("category__name") val categoryName: String,
     @SerializedName("category__path_name") val categoryPathName: String? = null,
+    @SerializedName("category__color_tag") val categoryColorTag: String? = null,
     @SerializedName("goods_count") val goodsCount: Int = 0,
     @SerializedName("quantity_sum") val quantitySum: Int = 0,
     @SerializedName("value_sum") val valueSum: String? = null
@@ -290,10 +365,42 @@ data class GoodsCategoryTopItem(
 data class GoodsIPTopItem(
     @SerializedName("ip_id") val ipId: Int,
     @SerializedName("ip__name") val ipName: String,
+    @SerializedName("ip__subject_type") val subjectType: Int? = null,
     @SerializedName("subject_type_label") val subjectTypeLabel: String? = null,
     @SerializedName("goods_count") val goodsCount: Int = 0,
     @SerializedName("quantity_sum") val quantitySum: Int = 0,
     @SerializedName("value_sum") val valueSum: String? = null
+)
+
+data class GoodsCharacterTopItem(
+    @SerializedName("characters__id") val characterId: Int? = null,
+    @SerializedName("characters__name") val characterName: String? = null,
+    @SerializedName("characters__ip__id") val ipId: Int? = null,
+    @SerializedName("characters__ip__name") val ipName: String? = null,
+    @SerializedName("goods_count") val goodsCount: Int = 0,
+    @SerializedName("quantity_sum") val quantitySum: Int = 0,
+    @SerializedName("value_sum") val valueSum: String? = null
+)
+
+data class GoodsLocationTopItem(
+    @SerializedName("location_id") val locationId: Int? = null,
+    @SerializedName("location__name") val locationName: String? = null,
+    @SerializedName("location__path_name") val locationPathName: String? = null,
+    @SerializedName("goods_count") val goodsCount: Int = 0,
+    @SerializedName("quantity_sum") val quantitySum: Int = 0,
+    @SerializedName("value_sum") val valueSum: String? = null
+)
+
+data class GoodsTrendBucket(
+    val bucket: String? = null,
+    @SerializedName("goods_count") val goodsCount: Int = 0,
+    @SerializedName("quantity_sum") val quantitySum: Int = 0,
+    @SerializedName("value_sum") val valueSum: String? = null
+)
+
+data class GoodsStatsTrends(
+    @SerializedName("purchase_date") val purchaseDate: List<GoodsTrendBucket>? = null,
+    @SerializedName("created_at") val createdAt: List<GoodsTrendBucket>? = null
 )
 
 // --- Pagination ---
@@ -307,10 +414,22 @@ data class PaginatedResponse<T>(
     val results: List<T> = emptyList()
 )
 
+data class StandardPaginatedResponse<T>(
+    val count: Int = 0,
+    val next: String? = null,
+    val previous: String? = null,
+    val results: List<T> = emptyList()
+)
+
 // --- Bangumi Import ---
 
 data class BgmSearchSubjectsRequest(
     val keyword: String,
+    @SerializedName("subject_type") val subjectType: Int? = null
+)
+
+data class BgmSearchCharactersRequest(
+    @SerializedName("ip_name") val ipName: String,
     @SerializedName("subject_type") val subjectType: Int? = null
 )
 
@@ -335,6 +454,11 @@ data class BgmCharacter(
     val name: String,
     val relation: String? = null,
     val avatar: String? = null
+)
+
+data class BgmSearchCharactersResponse(
+    @SerializedName("ip_name") val ipName: String,
+    val characters: List<BgmCharacter> = emptyList()
 )
 
 data class BgmGetCharactersResponse(

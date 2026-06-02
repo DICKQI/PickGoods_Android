@@ -15,6 +15,7 @@ import com.pickgoods.app.data.model.Character
 import com.pickgoods.app.data.model.CharacterRequest
 import com.pickgoods.app.data.model.IP
 import com.pickgoods.app.data.model.IPRequest
+import com.pickgoods.app.data.model.MetadataOrderItem
 import com.pickgoods.app.data.model.Theme
 import com.pickgoods.app.data.model.ThemeRequest
 import com.pickgoods.app.data.repository.GoodsResult
@@ -40,6 +41,11 @@ data class MetadataUiState(
     val error: String? = null,
     val baseUrl: String = TokenManager.DEFAULT_BASE_URL,
     val searchQuery: String = "",
+    val ipSubjectTypeFilter: Int? = null,
+    val characterIpFilterId: Int? = null,
+    val selectedIpForCharacters: IP? = null,
+    val ipCharacters: List<Character> = emptyList(),
+    val isIpCharactersLoading: Boolean = false,
     val ips: List<IP> = emptyList(),
     val characters: List<Character> = emptyList(),
     val categories: List<Category> = emptyList(),
@@ -90,9 +96,13 @@ class MetadataViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             val search = _uiState.value.searchQuery.ifBlank { null }
-            val ipsDeferred = async { repository.getIPs(search) }
-            val charactersDeferred = async { repository.getCharacters(search) }
-            val categoriesDeferred = async { repository.getCategories(search) }
+            val ipSubjectType = _uiState.value.ipSubjectTypeFilter
+            val characterIp = _uiState.value.characterIpFilterId
+            val ipsDeferred = async { repository.getIPs(search, ipSubjectType) }
+            val charactersDeferred = async { repository.getCharacters(search, characterIp) }
+            val categoriesDeferred = async {
+                if (search == null) repository.getCategoryTree() else repository.getCategories(search)
+            }
             val themesDeferred = async { repository.getThemes(search) }
 
             val ips = ipsDeferred.await()
@@ -105,14 +115,23 @@ class MetadataViewModel @Inject constructor(
                 .firstOrNull()
 
             _uiState.update {
+                val latestIps = if (ips is GoodsResult.Success) ips.data else it.ips
+                val selectedIp = it.selectedIpForCharacters?.let { selected ->
+                    latestIps.firstOrNull { latest -> latest.id == selected.id }
+                }
                 it.copy(
                     isLoading = false,
                     error = firstError?.message,
-                    ips = if (ips is GoodsResult.Success) ips.data else it.ips,
+                    ips = latestIps,
                     characters = if (characters is GoodsResult.Success) characters.data else it.characters,
                     categories = if (categories is GoodsResult.Success) categories.data else it.categories,
-                    themes = if (themes is GoodsResult.Success) themes.data else it.themes
+                    themes = if (themes is GoodsResult.Success) themes.data else it.themes,
+                    selectedIpForCharacters = selectedIp,
+                    ipCharacters = if (selectedIp == null) emptyList() else it.ipCharacters
                 )
+            }
+            _uiState.value.selectedIpForCharacters?.let { selected ->
+                loadIPCharactersInternal(selected)
             }
         }
     }
@@ -123,6 +142,32 @@ class MetadataViewModel @Inject constructor(
         searchJob = viewModelScope.launch {
             delay(250)
             refresh()
+        }
+    }
+
+    fun setIpSubjectTypeFilter(subjectType: Int?) {
+        _uiState.update { it.copy(ipSubjectTypeFilter = subjectType) }
+        refresh()
+    }
+
+    fun setCharacterIpFilter(ipId: Int?) {
+        _uiState.update { it.copy(characterIpFilterId = ipId) }
+        refresh()
+    }
+
+    fun loadIPCharacters(ip: IP) {
+        viewModelScope.launch {
+            loadIPCharactersInternal(ip)
+        }
+    }
+
+    fun clearIPCharacters() {
+        _uiState.update {
+            it.copy(
+                selectedIpForCharacters = null,
+                ipCharacters = emptyList(),
+                isIpCharactersLoading = false
+            )
         }
     }
 
@@ -143,18 +188,61 @@ class MetadataViewModel @Inject constructor(
         }
     }
 
-    fun deleteIP(id: Int) = runMutation { repository.deleteIP(id) }
+    fun deleteIP(id: Int) {
+        _uiState.update {
+            if (it.selectedIpForCharacters?.id == id || it.characterIpFilterId == id) {
+                it.copy(
+                    selectedIpForCharacters = it.selectedIpForCharacters?.takeIf { selected -> selected.id != id },
+                    ipCharacters = if (it.selectedIpForCharacters?.id == id) emptyList() else it.ipCharacters,
+                    characterIpFilterId = it.characterIpFilterId?.takeIf { selectedId -> selectedId != id },
+                    isIpCharactersLoading = false
+                )
+            } else {
+                it
+            }
+        }
+        runMutation { repository.deleteIP(id) }
+    }
 
-    fun saveCharacter(existing: Character?, name: String, ipId: Int, gender: String, avatar: String?) {
+    fun moveIP(id: Int, delta: Int) {
+        val ordered = _uiState.value.ips.sortedWith(compareBy<IP> { it.order }.thenBy { it.id })
+        val index = ordered.indexOfFirst { it.id == id }
+        val targetIndex = (index + delta).coerceIn(0, ordered.lastIndex)
+        if (index < 0 || targetIndex == index) return
+
+        val moved = ordered.toMutableList()
+        val item = moved.removeAt(index)
+        moved.add(targetIndex, item)
+        val orderItems = moved.mapIndexed { order, ip -> MetadataOrderItem(ip.id, order) }
+        runMutation { repository.batchUpdateIPOrder(orderItems) }
+    }
+
+    fun saveCharacter(
+        existing: Character?,
+        name: String,
+        ipId: Int,
+        gender: String,
+        avatar: String?,
+        avatarUri: String? = null
+    ) {
         runMutation {
-            val request = CharacterRequest(
-                name = name,
-                ipId = ipId,
-                gender = gender,
-                avatar = avatar?.ifBlank { null }
-            )
-            if (existing == null) repository.createCharacter(request)
-            else repository.updateCharacter(existing.id, request)
+            if (!avatarUri.isNullOrBlank()) {
+                val file = ImageUploadUtils.compressImageUri(context, Uri.parse(avatarUri))
+                if (existing == null) {
+                    repository.createCharacterWithAvatar(name, ipId, gender, file)
+                } else {
+                    repository.updateCharacterWithAvatar(existing.id, name, ipId, gender, file)
+                }
+            } else {
+                val request = CharacterRequest(
+                    name = name,
+                    ipId = ipId,
+                    gender = gender,
+                    avatar = avatar?.ifBlank { null }
+                )
+                if (existing == null) repository.createCharacter(request)
+                else repository.updateCharacter(existing.id, request)
+            }
         }
     }
 
@@ -174,6 +262,23 @@ class MetadataViewModel @Inject constructor(
     }
 
     fun deleteCategory(id: Int) = runMutation { repository.deleteCategory(id) }
+
+    fun moveCategory(id: Int, delta: Int) {
+        val categories = _uiState.value.categories
+        val category = categories.firstOrNull { it.id == id } ?: return
+        val siblings = categories
+            .filter { it.parent == category.parent }
+            .sortedWith(compareBy<Category> { it.order }.thenBy { it.id })
+        val index = siblings.indexOfFirst { it.id == id }
+        val targetIndex = (index + delta).coerceIn(0, siblings.lastIndex)
+        if (index < 0 || targetIndex == index) return
+
+        val moved = siblings.toMutableList()
+        val item = moved.removeAt(index)
+        moved.add(targetIndex, item)
+        val orderItems = moved.mapIndexed { order, sibling -> MetadataOrderItem(sibling.id, order) }
+        runMutation { repository.batchUpdateCategoryOrder(orderItems) }
+    }
 
     fun loadThemeDetail(id: Int) {
         viewModelScope.launch {
@@ -275,6 +380,21 @@ class MetadataViewModel @Inject constructor(
         }
     }
 
+    fun deleteThemeImages(themeId: Int, photoIds: Set<Int>) {
+        if (photoIds.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSaving = true, error = null) }
+            when (val result = repository.deleteThemeImages(themeId, photoIds.toList())) {
+                is GoodsResult.Success -> _uiState.update {
+                    it.copy(isSaving = false, activeThemeDetail = result.data)
+                }
+                is GoodsResult.Error -> _uiState.update {
+                    it.copy(isSaving = false, error = result.message)
+                }
+            }
+        }
+    }
+
     fun deleteTheme(id: Int) = runMutation { repository.deleteTheme(id) }
 
     fun clearError() {
@@ -339,6 +459,34 @@ class MetadataViewModel @Inject constructor(
                         bgmStep = if (result.data.subjects.isEmpty()) BgmImportStep.Search else BgmImportStep.Subjects,
                         bgmSubjects = result.data.subjects,
                         error = if (result.data.subjects.isEmpty()) "未找到相关作品" else null
+                    )
+                }
+                is GoodsResult.Error -> _uiState.update {
+                    it.copy(bgmStep = BgmImportStep.Search, error = result.message)
+                }
+            }
+        }
+    }
+
+    fun searchBgmCharactersDirect() {
+        val keyword = _uiState.value.bgmSearchQuery.trim()
+        if (keyword.isBlank()) {
+            _uiState.update { it.copy(error = "请输入 IP 作品名称") }
+            return
+        }
+        viewModelScope.launch {
+            val subjectType = _uiState.value.bgmSubjectType
+            _uiState.update { it.copy(bgmStep = BgmImportStep.LoadingCharacters, error = null) }
+            when (val result = repository.searchBgmCharacters(keyword, subjectType)) {
+                is GoodsResult.Success -> _uiState.update {
+                    it.copy(
+                        bgmStep = if (result.data.characters.isEmpty()) BgmImportStep.Search else BgmImportStep.Results,
+                        bgmSelectedSubject = null,
+                        bgmSubjectName = result.data.ipName,
+                        bgmCharacters = result.data.characters,
+                        bgmSelectedCharacterIndexes = emptySet(),
+                        bgmCharacterKeyword = "",
+                        error = if (result.data.characters.isEmpty()) "未找到角色" else null
                     )
                 }
                 is GoodsResult.Error -> _uiState.update {
@@ -448,6 +596,31 @@ class MetadataViewModel @Inject constructor(
                 is GoodsResult.Error -> {
                     _uiState.update { it.copy(isSaving = false, error = result.message) }
                 }
+            }
+        }
+    }
+
+    private suspend fun loadIPCharactersInternal(ip: IP) {
+        _uiState.update {
+            it.copy(
+                selectedIpForCharacters = ip,
+                isIpCharactersLoading = true,
+                error = null
+            )
+        }
+        when (val result = repository.getIPCharacters(ip.id)) {
+            is GoodsResult.Success -> _uiState.update {
+                it.copy(
+                    selectedIpForCharacters = ip,
+                    ipCharacters = result.data,
+                    isIpCharactersLoading = false
+                )
+            }
+            is GoodsResult.Error -> _uiState.update {
+                it.copy(
+                    isIpCharactersLoading = false,
+                    error = result.message
+                )
             }
         }
     }

@@ -4,10 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,12 +26,17 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -56,11 +63,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.pickgoods.app.data.model.GoodsListItem
 import com.pickgoods.app.ui.common.PickGoodsTopBar
 import com.pickgoods.app.ui.common.EmptyMessage
@@ -72,10 +81,13 @@ import com.pickgoods.app.ui.common.PickGoodsScreen
 import com.pickgoods.app.ui.common.PickGoodsShape
 import com.pickgoods.app.ui.common.ShimmerBlock
 import com.pickgoods.app.ui.goods.components.GoodsCard
+import com.pickgoods.app.ui.goods.components.resolveImageUrl
 import com.pickgoods.app.ui.theme.Gold
 import com.pickgoods.app.ui.theme.GoldSoft
 import com.pickgoods.app.ui.theme.PurpleSecondary
+import com.pickgoods.app.ui.theme.PurpleSoft
 import com.pickgoods.app.ui.theme.SurfaceGray
+import com.pickgoods.app.ui.theme.TextLighter
 import com.pickgoods.app.ui.theme.White
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -115,6 +127,12 @@ fun GoodsListScreen(
                 onLocationFilterChanged = viewModel::setLocationFilter,
                 onGroupByChanged = viewModel::setGroupBy,
                 onViewModeChanged = viewModel::setViewMode,
+                onSimilarSeedStrategyChanged = viewModel::setSimilarSeedStrategy,
+                onEnterSelectionMode = viewModel::enterSelectionMode,
+                onExitSelectionMode = { viewModel.exitSelectionMode(clearSelection = true) },
+                onToggleGoodsSelection = viewModel::toggleGoodsSelection,
+                onRemoveGoodsSelection = viewModel::removeGoodsSelection,
+                onClearGoodsSelection = viewModel::clearGoodsSelection,
                 onResetFilters = viewModel::resetFilters,
                 onRefreshMetadata = viewModel::refreshMetadata,
                 onPageChanged = viewModel::setPage,
@@ -140,6 +158,12 @@ fun GoodsListContent(
     onLocationFilterChanged: (Int?) -> Unit = {},
     onGroupByChanged: (String?) -> Unit = {},
     onViewModeChanged: (GoodsViewMode) -> Unit = {},
+    onSimilarSeedStrategyChanged: (String) -> Unit = {},
+    onEnterSelectionMode: () -> Unit = {},
+    onExitSelectionMode: () -> Unit = {},
+    onToggleGoodsSelection: (GoodsListItem) -> Unit = {},
+    onRemoveGoodsSelection: (String) -> Unit = {},
+    onClearGoodsSelection: () -> Unit = {},
     onResetFilters: () -> Unit = {},
     onRefreshMetadata: () -> Unit = {},
     onPageChanged: (Int) -> Unit = {},
@@ -149,24 +173,26 @@ fun GoodsListContent(
     modifier: Modifier = Modifier
 ) {
     var showFilterSheet by remember { mutableStateOf(false) }
+    var showMultiDisplaySheet by remember { mutableStateOf(false) }
     val showPagination = uiState.viewMode == GoodsViewMode.STANDARD && uiState.totalPages > 1
+    val selectedGoods = remember(uiState.selectedGoodsById) { uiState.selectedGoodsById.values.toList() }
 
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(horizontal = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         PickGoodsCard(
             modifier = Modifier.fillMaxWidth(),
-            radius = 18.dp
+            radius = 14.dp
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedTextField(
@@ -184,7 +210,7 @@ fun GoodsListContent(
                         singleLine = true,
                         modifier = Modifier
                             .weight(1f)
-                            .height(52.dp),
+                            .height(46.dp),
                         shape = PickGoodsShape.Control,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -207,7 +233,7 @@ fun GoodsListContent(
                     )
                 }
 
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     item {
                         SummaryPill(
                             text = activeFilterSummary(uiState),
@@ -233,6 +259,36 @@ fun GoodsListContent(
                             label = if (item.value == null) "官非" else item.label
                         )
                     }
+                    item {
+                        SelectionModeChip(
+                            active = uiState.selectionMode,
+                            count = selectedGoods.size,
+                            onClick = {
+                                if (uiState.selectionMode && selectedGoods.isNotEmpty()) {
+                                    showMultiDisplaySheet = true
+                                } else {
+                                    onEnterSelectionMode()
+                                }
+                            }
+                        )
+                    }
+                    if (uiState.selectionMode) {
+                        item {
+                            SelectionExitChip(onClick = onExitSelectionMode)
+                        }
+                    }
+                }
+
+                if (uiState.selectionMode) {
+                    SelectionStatusBar(
+                        selectedCount = selectedGoods.size,
+                        onDisplay = {
+                            if (selectedGoods.isNotEmpty()) {
+                                showMultiDisplaySheet = true
+                            }
+                        },
+                        onClear = onClearGoodsSelection
+                    )
                 }
             }
         }
@@ -252,14 +308,14 @@ fun GoodsListContent(
                 when (state) {
                     "loading" -> {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(150.dp),
-                        contentPadding = PaddingValues(bottom = 14.dp),
+                        columns = GridCells.Adaptive(190.dp),
+                        contentPadding = PaddingValues(bottom = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(6) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                ShimmerBlock(modifier = Modifier.fillMaxWidth().height(172.dp), radius = 16.dp)
+                            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                ShimmerBlock(modifier = Modifier.fillMaxWidth().aspectRatio(0.86f), radius = 16.dp)
                                 ShimmerBlock(modifier = Modifier.fillMaxWidth().height(18.dp), radius = 8.dp)
                                 ShimmerBlock(modifier = Modifier.fillMaxWidth(0.72f).height(14.dp), radius = 8.dp)
                             }
@@ -279,8 +335,9 @@ fun GoodsListContent(
                     else -> {
                         GoodsGrid(
                             uiState = uiState,
-                            bottomPadding = if (showPagination) 70.dp else 14.dp,
-                            onGoodsClick = onGoodsClick
+                            bottomPadding = if (showPagination) 58.dp else 10.dp,
+                            onGoodsClick = onGoodsClick,
+                            onToggleGoodsSelection = onToggleGoodsSelection
                         )
                     }
                 }
@@ -313,8 +370,19 @@ fun GoodsListContent(
             onLocationFilterChanged = onLocationFilterChanged,
             onGroupByChanged = onGroupByChanged,
             onViewModeChanged = onViewModeChanged,
+            onSimilarSeedStrategyChanged = onSimilarSeedStrategyChanged,
             onResetFilters = onResetFilters,
             onRefreshMetadata = onRefreshMetadata
+        )
+    }
+
+    if (showMultiDisplaySheet) {
+        GoodsMultiDisplaySheet(
+            selectedGoods = selectedGoods,
+            baseUrl = uiState.baseUrl,
+            onRemove = onRemoveGoodsSelection,
+            onClear = onClearGoodsSelection,
+            onDismiss = { showMultiDisplaySheet = false }
         )
     }
 }
@@ -323,21 +391,30 @@ fun GoodsListContent(
 private fun GoodsGrid(
     uiState: GoodsListUiState,
     bottomPadding: androidx.compose.ui.unit.Dp,
-    onGoodsClick: (String) -> Unit
+    onGoodsClick: (String) -> Unit,
+    onToggleGoodsSelection: (GoodsListItem) -> Unit
 ) {
     val groups = remember(uiState.goods, uiState.groupBy) {
         groupGoods(uiState.goods, uiState.groupBy)
     }
+    val selectedIds = uiState.selectedGoodsById.keys
 
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(150.dp),
+        columns = GridCells.Adaptive(190.dp),
         contentPadding = PaddingValues(bottom = bottomPadding),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (uiState.groupBy.isNullOrBlank()) {
             items(uiState.goods, key = { it.id }) { goods ->
-                GoodsCard(goods = goods, baseUrl = uiState.baseUrl, onClick = { onGoodsClick(goods.id) })
+                GoodsCard(
+                    goods = goods,
+                    baseUrl = uiState.baseUrl,
+                    selectable = uiState.selectionMode,
+                    selected = goods.id in selectedIds,
+                    onSelect = { onToggleGoodsSelection(goods) },
+                    onClick = { onGoodsClick(goods.id) }
+                )
             }
         } else {
             groups.forEach { group ->
@@ -351,7 +428,14 @@ private fun GoodsGrid(
                     )
                 }
                 items(group.items, key = { it.id }) { goods ->
-                    GoodsCard(goods = goods, baseUrl = uiState.baseUrl, onClick = { onGoodsClick(goods.id) })
+                    GoodsCard(
+                        goods = goods,
+                        baseUrl = uiState.baseUrl,
+                        selectable = uiState.selectionMode,
+                        selected = goods.id in selectedIds,
+                        onSelect = { onToggleGoodsSelection(goods) },
+                        onClick = { onGoodsClick(goods.id) }
+                    )
                 }
             }
         }
@@ -413,7 +497,7 @@ private fun GoodsPaginationDock(
 ) {
     PickGoodsCard(
         modifier = modifier,
-        radius = 22.dp
+        radius = 16.dp
     ) {
         Row(
             modifier = Modifier
@@ -426,35 +510,232 @@ private fun GoodsPaginationDock(
                         )
                     )
                 )
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .padding(horizontal = 7.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             PaginationIconButton(
                 enabled = page > 1,
                 onClick = { onPageChanged((page - 1).coerceAtLeast(1)) },
-                icon = Icons.Filled.KeyboardArrowLeft,
+                icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                 contentDescription = "上一页"
             )
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "第 $page / $totalPages 页",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "共 $totalCount 件谷子",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                text = "第 $page / $totalPages 页 · 共 $totalCount 件",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
             PaginationIconButton(
                 enabled = page < totalPages,
                 onClick = { onPageChanged((page + 1).coerceAtMost(totalPages)) },
-                icon = Icons.Filled.KeyboardArrowRight,
+                icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = "下一页"
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GoodsMultiDisplaySheet(
+    selectedGoods: List<GoodsListItem>,
+    baseUrl: String,
+    onRemove: (String) -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var density by remember { mutableStateOf(GoodsDisplayDensity.Standard) }
+    val gridMin = when (density) {
+        GoodsDisplayDensity.Compact -> 138.dp
+        GoodsDisplayDensity.Standard -> 182.dp
+        GoodsDisplayDensity.Grid -> 118.dp
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = White
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(start = 14.dp, end = 14.dp, bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = PickGoodsShape.Pill, color = SurfaceGray.copy(alpha = 0.86f)) {
+                    Text(
+                        text = "已选 ${selectedGoods.size} 件谷子",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                    )
+                }
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onClear, enabled = selectedGoods.isNotEmpty()) {
+                        Text("清空")
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Outlined.Close, contentDescription = "关闭")
+                    }
+                }
+            }
+
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(displayDensityOptions) { option ->
+                    FilterChip(
+                        selected = density == option,
+                        onClick = { density = option },
+                        leadingIcon = if (option == GoodsDisplayDensity.Grid) {
+                            {
+                                Icon(
+                                    imageVector = Icons.Outlined.GridView,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = SurfaceGray.copy(alpha = 0.72f),
+                            selectedContainerColor = PurpleSecondary.copy(alpha = 0.16f),
+                            selectedLabelColor = PurpleSecondary
+                        ),
+                        label = { Text(option.label) }
+                    )
+                }
+            }
+
+            if (selectedGoods.isEmpty()) {
+                EmptyMessage("暂无已选谷子")
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(gridMin),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 220.dp, max = 560.dp),
+                    contentPadding = PaddingValues(bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (density == GoodsDisplayDensity.Grid) 5.dp else 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (density == GoodsDisplayDensity.Grid) 5.dp else 10.dp)
+                ) {
+                    items(selectedGoods, key = { it.id }) { goods ->
+                        GoodsDisplayTile(
+                            goods = goods,
+                            baseUrl = baseUrl,
+                            density = density,
+                            onRemove = { onRemove(goods.id) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GoodsDisplayTile(
+    goods: GoodsListItem,
+    baseUrl: String,
+    density: GoodsDisplayDensity,
+    onRemove: () -> Unit
+) {
+    val imageUrl = resolveImageUrl(goods.mainPhoto, baseUrl)
+    val imageModifier = if (density == GoodsDisplayDensity.Grid) {
+        Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+    } else {
+        Modifier
+            .fillMaxWidth()
+            .height(if (density == GoodsDisplayDensity.Compact) 164.dp else 214.dp)
+    }
+
+    PickGoodsCard(
+        radius = if (density == GoodsDisplayDensity.Grid) 8.dp else 14.dp,
+        borderColor = if (density == GoodsDisplayDensity.Grid) MaterialTheme.colorScheme.outline.copy(alpha = 0.12f) else Gold.copy(alpha = 0.22f),
+        containerColor = if (density == GoodsDisplayDensity.Grid) White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
+    ) {
+        Box(
+            modifier = imageModifier
+                .clip(RoundedCornerShape(if (density == GoodsDisplayDensity.Grid) 8.dp else 14.dp))
+                .background(Brush.linearGradient(listOf(PurpleSoft, GoldSoft))),
+            contentAlignment = Alignment.Center
+        ) {
+            if (imageUrl != null) {
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = goods.name,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(if (density == GoodsDisplayDensity.Grid) White else MaterialTheme.colorScheme.onSurface)
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Outlined.Image,
+                    contentDescription = null,
+                    tint = TextLighter,
+                    modifier = Modifier.size(34.dp)
+                )
+            }
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(30.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.64f),
+                        shape = PickGoodsShape.Pill
+                    )
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "移除",
+                    tint = White,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+        if (density != GoodsDisplayDensity.Grid) {
+            Column(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = goods.name,
+                    color = White,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = buildString {
+                        append(goods.ip.name)
+                        val characters = goods.characters.joinToString("、") { it.name }
+                        if (characters.isNotBlank()) {
+                            append(" / ")
+                            append(characters)
+                        }
+                    },
+                    color = White.copy(alpha = 0.66f),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
@@ -470,7 +751,7 @@ private fun PaginationIconButton(
         shape = PickGoodsShape.Pill,
         color = if (enabled) PurpleSecondary.copy(alpha = 0.14f) else SurfaceGray,
     ) {
-        IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(40.dp)) {
+        IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(36.dp)) {
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
@@ -494,22 +775,15 @@ private fun CompactToolbarButton(
         color = container,
         shadowElevation = if (emphasized) 2.dp else 0.dp,
         modifier = Modifier
-            .height(44.dp)
+            .size(44.dp)
             .clip(PickGoodsShape.Pill)
             .clickable(onClick = onClick)
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(18.dp))
-            Text(
-                text = label,
-                color = content,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold
-            )
+            Icon(icon, contentDescription = label, tint = content, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -520,7 +794,7 @@ private fun SummaryPill(
     highlighted: Boolean
 ) {
     Surface(
-        modifier = Modifier.widthIn(max = 180.dp),
+        modifier = Modifier.widthIn(max = 168.dp),
         shape = PickGoodsShape.Pill,
         color = if (highlighted) GoldSoft else SurfaceGray.copy(alpha = 0.72f),
         border = BorderStroke(1.dp, if (highlighted) Gold.copy(alpha = 0.32f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.18f))
@@ -531,7 +805,7 @@ private fun SummaryPill(
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
         )
     }
 }
@@ -545,7 +819,7 @@ private fun CompactFilterChip(
     FilterChip(
         selected = selected,
         onClick = onClick,
-        modifier = Modifier.height(34.dp),
+        modifier = Modifier.height(32.dp),
         colors = FilterChipDefaults.filterChipColors(
             containerColor = White,
             labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -568,6 +842,121 @@ private fun CompactFilterChip(
     )
 }
 
+@Composable
+private fun SelectionModeChip(
+    active: Boolean,
+    count: Int,
+    onClick: () -> Unit
+) {
+    FilterChip(
+        selected = active,
+        onClick = onClick,
+        modifier = Modifier.height(32.dp),
+        leadingIcon = {
+            Icon(
+                imageVector = if (active) Icons.Outlined.Image else Icons.Outlined.CheckCircle,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp)
+            )
+        },
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = White,
+            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            selectedContainerColor = GoldSoft,
+            selectedLabelColor = Gold
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = active,
+            borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.32f),
+            selectedBorderColor = Gold.copy(alpha = 0.35f)
+        ),
+        label = {
+            Text(
+                text = if (active && count > 0) "展示 $count" else if (active) "多选中" else "多选",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    )
+}
+
+@Composable
+private fun SelectionExitChip(onClick: () -> Unit) {
+    FilterChip(
+        selected = false,
+        onClick = onClick,
+        modifier = Modifier.height(32.dp),
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Outlined.Close,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp)
+            )
+        },
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = SurfaceGray.copy(alpha = 0.72f),
+            labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = false,
+            borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
+            selectedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)
+        ),
+        label = { Text("退出") }
+    )
+}
+
+@Composable
+private fun SelectionStatusBar(
+    selectedCount: Int,
+    onDisplay: () -> Unit,
+    onClear: () -> Unit
+) {
+    Surface(
+        shape = PickGoodsShape.Control,
+        color = GoldSoft.copy(alpha = 0.74f),
+        border = BorderStroke(1.dp, Gold.copy(alpha = 0.26f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.CheckCircle,
+                contentDescription = null,
+                tint = Gold,
+                modifier = Modifier.size(18.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "已选 $selectedCount 件谷子",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "可继续搜索、筛选或翻页添加",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            TextButton(onClick = onClear, enabled = selectedCount > 0) {
+                Text("清空")
+            }
+            TextButton(onClick = onDisplay, enabled = selectedCount > 0) {
+                Text("同屏")
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun GoodsFilterSheet(
@@ -582,6 +971,7 @@ private fun GoodsFilterSheet(
     onLocationFilterChanged: (Int?) -> Unit,
     onGroupByChanged: (String?) -> Unit,
     onViewModeChanged: (GoodsViewMode) -> Unit,
+    onSimilarSeedStrategyChanged: (String) -> Unit,
     onResetFilters: () -> Unit,
     onRefreshMetadata: () -> Unit
 ) {
@@ -633,6 +1023,20 @@ private fun GoodsFilterSheet(
                 }
             }
 
+            if (uiState.viewMode == GoodsViewMode.SIMILAR_RANDOM) {
+                item {
+                    FilterSection("相似策略") {
+                        similarSeedStrategyOptions.forEach { item ->
+                            SelectionChip(
+                                label = item.label,
+                                selected = uiState.similarSeedStrategy == item.value,
+                                onClick = { onSimilarSeedStrategyChanged(item.value) }
+                            )
+                        }
+                    }
+                }
+            }
+
             item {
                 FilterSection("IP 作品") {
                     SelectionChip("全部", uiState.selectedIpId == null) { onIpFilterChanged(null) }
@@ -648,11 +1052,15 @@ private fun GoodsFilterSheet(
 
             item {
                 FilterSection("角色") {
-                    SelectionChip("全部", uiState.selectedCharacterId == null) { onCharacterFilterChanged(null) }
+                    SelectionChip(
+                        "全部",
+                        uiState.selectedCharacterIds.isEmpty() && uiState.selectedCharacterId == null
+                    ) { onCharacterFilterChanged(null) }
                     filteredCharacters.take(50).forEach { character ->
                         SelectionChip(
                             label = character.name,
-                            selected = uiState.selectedCharacterId == character.id,
+                            selected = character.id in uiState.selectedCharacterIds ||
+                                (uiState.selectedCharacterIds.isEmpty() && uiState.selectedCharacterId == character.id),
                             onClick = { onCharacterFilterChanged(character.id) }
                         )
                     }
@@ -832,11 +1240,20 @@ private fun currentStatusSet(uiState: GoodsListUiState): Set<String> {
 private fun activeFilterSummary(uiState: GoodsListUiState): String {
     val pieces = mutableListOf<String>()
     uiState.ips.firstOrNull { it.id == uiState.selectedIpId }?.let { pieces += it.name }
-    uiState.characters.firstOrNull { it.id == uiState.selectedCharacterId }?.let { pieces += it.name }
+    val selectedCharacters = uiState.characters.filter { it.id in uiState.selectedCharacterIds }
+    when {
+        selectedCharacters.size > 2 -> pieces += "${selectedCharacters.size} 个角色"
+        selectedCharacters.isNotEmpty() -> pieces += selectedCharacters.joinToString(" / ") { it.name }
+        uiState.selectedCharacterIds.isNotEmpty() -> pieces += "${uiState.selectedCharacterIds.size} 个角色"
+        else -> uiState.characters.firstOrNull { it.id == uiState.selectedCharacterId }?.let { pieces += it.name }
+    }
     uiState.categories.firstOrNull { it.id == uiState.selectedCategoryId }?.let { pieces += it.name }
     uiState.themes.firstOrNull { it.id == uiState.selectedThemeId }?.let { pieces += it.name }
     uiState.locations.firstOrNull { it.id == uiState.selectedLocationId }?.let { pieces += it.name }
     uiState.groupBy?.let { pieces += groupByOptions.firstOrNull { option -> option.value == it }?.label ?: it }
+    if (uiState.viewMode == GoodsViewMode.SIMILAR_RANDOM) {
+        pieces += "相似·${similarSeedStrategyOptions.firstOrNull { it.value == uiState.similarSeedStrategy }?.label ?: "均衡"}"
+    }
     if (uiState.statusIn != null) {
         pieces += "多状态"
     } else if (uiState.statusFilter == null) {
@@ -852,6 +1269,18 @@ private fun activeFilterSummary(uiState: GoodsListUiState): String {
 private data class GoodsGroup(
     val label: String,
     val items: List<GoodsListItem>
+)
+
+private enum class GoodsDisplayDensity(val label: String) {
+    Compact("紧凑"),
+    Standard("标准"),
+    Grid("宫格")
+}
+
+private val displayDensityOptions = listOf(
+    GoodsDisplayDensity.Compact,
+    GoodsDisplayDensity.Standard,
+    GoodsDisplayDensity.Grid
 )
 
 private fun groupGoods(
@@ -901,4 +1330,10 @@ private val groupByOptions: List<FilterItem<String?>> = listOf(
     FilterItem("按角色", "character"),
     FilterItem("按品类", "category"),
     FilterItem("按主题", "theme")
+)
+
+private val similarSeedStrategyOptions: List<FilterItem<String>> = listOf(
+    FilterItem("均衡", "diverse"),
+    FilterItem("热门", "popular"),
+    FilterItem("最近", "recent")
 )

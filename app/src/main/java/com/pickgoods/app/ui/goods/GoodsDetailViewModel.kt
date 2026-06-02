@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pickgoods.app.data.local.TokenManager
 import com.pickgoods.app.data.model.GoodsDetail
+import com.pickgoods.app.data.model.GoodsListItem
 import com.pickgoods.app.data.repository.GoodsRepository
 import com.pickgoods.app.data.repository.GoodsResult
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -19,6 +20,9 @@ data class GoodsDetailUiState(
     val isDeleting: Boolean = false,
     val error: String? = null,
     val goods: GoodsDetail? = null,
+    val isSameThemeLoading: Boolean = false,
+    val sameThemeGoods: List<GoodsListItem> = emptyList(),
+    val sameThemeError: String? = null,
     val deleted: Boolean = false,
     val baseUrl: String = TokenManager.DEFAULT_BASE_URL
 )
@@ -34,15 +38,45 @@ class GoodsDetailViewModel @Inject constructor(
     fun load(id: String) {
         viewModelScope.launch {
             _uiState.update {
-                it.copy(isLoading = true, error = null, baseUrl = tokenManager.getBaseUrl())
+                it.copy(
+                    isLoading = true,
+                    error = null,
+                    sameThemeError = null,
+                    sameThemeGoods = emptyList(),
+                    baseUrl = tokenManager.getBaseUrl()
+                )
             }
             when (val result = repository.getDetail(id)) {
-                is GoodsResult.Success -> _uiState.update {
-                    it.copy(isLoading = false, goods = result.data)
+                is GoodsResult.Success -> {
+                    _uiState.update {
+                        it.copy(isLoading = false, goods = result.data)
+                    }
+                    result.data.theme?.id?.let { themeId ->
+                        loadSameThemeGoods(themeId = themeId, currentGoodsId = result.data.id)
+                    }
                 }
                 is GoodsResult.Error -> _uiState.update {
                     it.copy(isLoading = false, error = result.message)
                 }
+            }
+        }
+    }
+
+    private suspend fun loadSameThemeGoods(themeId: Int, currentGoodsId: String) {
+        _uiState.update { it.copy(isSameThemeLoading = true, sameThemeError = null) }
+        when (val result = repository.getList(theme = themeId, pageSize = 100)) {
+            is GoodsResult.Success -> _uiState.update {
+                it.copy(
+                    isSameThemeLoading = false,
+                    sameThemeGoods = result.data.results.filterNot { goods -> goods.id == currentGoodsId }
+                )
+            }
+            is GoodsResult.Error -> _uiState.update {
+                it.copy(
+                    isSameThemeLoading = false,
+                    sameThemeError = result.message,
+                    sameThemeGoods = emptyList()
+                )
             }
         }
     }

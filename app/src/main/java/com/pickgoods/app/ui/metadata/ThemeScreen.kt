@@ -3,6 +3,7 @@ package com.pickgoods.app.ui.metadata
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,19 +13,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,7 +44,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,10 +55,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.pickgoods.app.data.model.Theme
 import com.pickgoods.app.data.model.ThemeImage
-import com.pickgoods.app.ui.common.AddButton
+import com.pickgoods.app.data.util.ImageCaptureUtils
+import com.pickgoods.app.ui.common.CompactActionButton
 import com.pickgoods.app.ui.common.DeleteConfirmDialog
 import com.pickgoods.app.ui.common.EmptyMessage
 import com.pickgoods.app.ui.common.ErrorMessage
+import com.pickgoods.app.ui.common.MobileFormSheet
+import com.pickgoods.app.ui.common.MobileHeaderCard
+import com.pickgoods.app.ui.common.MobileInfoTile
+import com.pickgoods.app.ui.common.MobileSectionHeader
 import com.pickgoods.app.ui.common.PickGoodsCard
 import com.pickgoods.app.ui.common.PickGoodsScreen
 import com.pickgoods.app.ui.common.PickGoodsShape
@@ -62,6 +71,7 @@ import com.pickgoods.app.ui.common.PickGoodsTopBar
 import com.pickgoods.app.ui.common.SearchField
 import com.pickgoods.app.ui.common.SimpleListCard
 import com.pickgoods.app.ui.goods.components.resolveImageUrl
+import com.pickgoods.app.ui.theme.Gold
 import com.pickgoods.app.ui.theme.GoldSoft
 import com.pickgoods.app.ui.theme.PurpleSecondary
 import com.pickgoods.app.ui.theme.PurpleSoft
@@ -92,6 +102,7 @@ fun ThemeScreen(
                 onClearDetail = viewModel::clearThemeDetail,
                 onUpdateImageLabel = viewModel::updateThemeImageLabel,
                 onDeleteImage = viewModel::deleteThemeImage,
+                onDeleteImages = viewModel::deleteThemeImages,
                 onDelete = viewModel::deleteTheme,
                 onRefresh = viewModel::refresh
             )
@@ -108,6 +119,7 @@ private fun ThemeContent(
     onClearDetail: () -> Unit,
     onUpdateImageLabel: (Int, Int, String) -> Unit,
     onDeleteImage: (Int, Int) -> Unit,
+    onDeleteImages: (Int, Set<Int>) -> Unit,
     onDelete: (Int) -> Unit,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier
@@ -115,34 +127,65 @@ private fun ThemeContent(
     var editing by remember { mutableStateOf<Theme?>(null) }
     var showCreate by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<Theme?>(null) }
+    val imageCount = remember(state.themes) { state.themes.sumOf { it.images?.size ?: 0 } }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("主题管理", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text(
-                        "为同系列谷子建立主题集合",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+            MobileHeaderCard(
+                title = "主题管理",
+                subtitle = "${state.themes.size} 个主题集合",
+                trailing = {
+                    CompactActionButton(label = "新增", onClick = { showCreate = true })
                 }
-                AddButton(onClick = { showCreate = true })
-            }
-        }
-        item {
-            PickGoodsCard(radius = 18.dp) {
+            ) {
                 SearchField(
                     value = state.searchQuery,
                     onValueChange = onSearch,
                     placeholder = "搜索主题...",
-                    modifier = Modifier.padding(12.dp)
+                    modifier = Modifier.height(48.dp)
                 )
             }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                MobileInfoTile(
+                    label = "主题",
+                    value = state.themes.size.toString(),
+                    subtitle = "主题集合",
+                    accent = Gold,
+                    modifier = Modifier.weight(1f)
+                )
+                MobileInfoTile(
+                    label = "图片",
+                    value = imageCount.toString(),
+                    subtitle = "主题素材",
+                    accent = PurpleSecondary,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        if (state.themes.isNotEmpty()) {
+            item {
+                ThemePreviewRail(
+                    themes = state.themes.take(12),
+                    baseUrl = state.baseUrl,
+                    onSelect = { theme ->
+                        editing = theme
+                        onLoadDetail(theme.id)
+                    }
+                )
+            }
+        }
+        item {
+            MobileSectionHeader(
+                title = "主题列表",
+                subtitle = "用于系列、场景和拍摄方案归类",
+                accent = PurpleSecondary
+            )
         }
         state.error?.takeIf { state.themes.isNotEmpty() }?.let { error ->
             item { ErrorMessage(error, onRefresh) }
@@ -189,7 +232,8 @@ private fun ThemeContent(
                 onClearDetail()
             },
             onUpdateImageLabel = onUpdateImageLabel,
-            onDeleteImage = onDeleteImage
+            onDeleteImage = onDeleteImage,
+            onDeleteImages = onDeleteImages
         )
     }
     deleteTarget?.let { theme ->
@@ -202,6 +246,83 @@ private fun ThemeContent(
                 deleteTarget = null
             }
         )
+    }
+}
+
+@Composable
+private fun ThemePreviewRail(
+    themes: List<Theme>,
+    baseUrl: String,
+    onSelect: (Theme) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        MobileSectionHeader(
+            title = "主题预览",
+            subtitle = "图片优先浏览，适合快速找系列",
+            accent = Gold
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(themes, key = { it.id }) { theme ->
+                ThemePreviewCard(
+                    theme = theme,
+                    baseUrl = baseUrl,
+                    onClick = { onSelect(theme) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemePreviewCard(
+    theme: Theme,
+    baseUrl: String,
+    onClick: () -> Unit
+) {
+    val image = theme.images?.firstOrNull()?.image
+    PickGoodsCard(
+        modifier = Modifier.width(238.dp),
+        radius = 16.dp,
+        onClick = onClick
+    ) {
+        Column(
+            modifier = Modifier.padding(9.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(168.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Brush.linearGradient(listOf(PurpleSoft, GoldSoft))),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!image.isNullOrBlank()) {
+                    AsyncImage(
+                        model = resolveImageUrl(image, baseUrl),
+                        contentDescription = theme.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(Icons.Outlined.Image, contentDescription = null, tint = PurpleSecondary)
+                }
+            }
+            Text(
+                text = theme.name,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = theme.description ?: "${theme.images?.size ?: 0} 张主题图",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -230,7 +351,7 @@ private fun ThemeThumb(theme: Theme, baseUrl: String) {
     val image = theme.images?.firstOrNull()?.image
     Box(
         modifier = Modifier
-            .size(58.dp)
+            .size(82.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(Brush.linearGradient(listOf(PurpleSoft, GoldSoft))),
         contentAlignment = Alignment.Center
@@ -264,163 +385,175 @@ private fun ThemeEditDialog(
     onDismiss: () -> Unit,
     onConfirm: (String, String?, List<String>, String?) -> Unit,
     onUpdateImageLabel: (Int, Int, String) -> Unit,
-    onDeleteImage: (Int, Int) -> Unit
+    onDeleteImage: (Int, Int) -> Unit,
+    onDeleteImages: (Int, Set<Int>) -> Unit
 ) {
     var name by remember(theme?.id) { mutableStateOf(theme?.name.orEmpty()) }
     var description by remember(theme?.id) { mutableStateOf(theme?.description.orEmpty()) }
     var newImageUris by remember(theme?.id) { mutableStateOf<List<String>>(emptyList()) }
     var newImageLabel by remember(theme?.id) { mutableStateOf("") }
+    var pendingCameraUri by remember(theme?.id) { mutableStateOf<Uri?>(null) }
+    var selectedImageIds by remember(theme?.id, detailTheme?.images?.map { it.id }) {
+        mutableStateOf<Set<Int>>(emptySet())
+    }
+    val context = LocalContext.current
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(8)
     ) { uris ->
         newImageUris = (newImageUris + uris.map { it.toString() }).distinct()
     }
+    val imageCameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            pendingCameraUri?.let { uri ->
+                newImageUris = (newImageUris + uri.toString()).distinct()
+            }
+        }
+        pendingCameraUri = null
+    }
     val detail = detailTheme?.takeIf { it.id == theme?.id }
     val existingImages = detail?.images.orEmpty()
     val busy = isSaving || isUploadingImages
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (theme == null) "新增主题" else "编辑主题") },
-        text = {
-            LazyColumn(
+    MobileFormSheet(
+        title = if (theme == null) "新增主题" else "编辑主题",
+        subtitle = "主题图片可作为系列、场景或拍摄方案的补充素材",
+        confirmEnabled = name.isNotBlank(),
+        isBusy = busy,
+        onDismiss = onDismiss,
+        onConfirm = {
+            onConfirm(
+                name.trim(),
+                description.trim(),
+                newImageUris,
+                newImageLabel.trim().ifBlank { null }
+            )
+        }
+    ) {
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text("主题名称") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = PickGoodsShape.Control
+        )
+        OutlinedTextField(
+            value = description,
+            onValueChange = { description = it },
+            label = { Text("主题描述") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 3,
+            shape = PickGoodsShape.Control
+        )
+
+        ThemeImageManagerHeader(
+            isLoadingDetail = isLoadingDetail,
+            isUploadingImages = isUploadingImages,
+            selectedCount = selectedImageIds.size,
+            onDeleteSelected = theme?.let { currentTheme ->
+                {
+                    onDeleteImages(currentTheme.id, selectedImageIds)
+                    selectedImageIds = emptySet()
+                }
+            }
+        )
+
+        if (isLoadingDetail && theme != null) {
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 590.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
             ) {
-                item {
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = { Text("主题名称") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = PickGoodsShape.Control
-                    )
-                }
-                item {
-                    OutlinedTextField(
-                        value = description,
-                        onValueChange = { description = it },
-                        label = { Text("主题描述") },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 3,
-                        shape = PickGoodsShape.Control
-                    )
-                }
-
-                item {
-                    ThemeImageManagerHeader(
-                        isLoadingDetail = isLoadingDetail,
-                        isUploadingImages = isUploadingImages
-                    )
-                }
-
-                if (isLoadingDetail && theme != null) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator()
-                        }
-                    }
-                } else if (theme != null && existingImages.isNotEmpty()) {
-                    item {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            items(existingImages, key = { it.id }) { image ->
-                                ExistingThemeImageCard(
-                                    themeId = theme.id,
-                                    image = image,
-                                    baseUrl = baseUrl,
-                                    busy = busy,
-                                    onUpdateLabel = onUpdateImageLabel,
-                                    onDeleteImage = onDeleteImage
-                                )
+                CircularProgressIndicator()
+            }
+        } else if (theme != null && existingImages.isNotEmpty()) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(existingImages, key = { it.id }) { image ->
+                    ExistingThemeImageCard(
+                        themeId = theme.id,
+                        image = image,
+                        baseUrl = baseUrl,
+                        busy = busy,
+                        selected = image.id in selectedImageIds,
+                        onToggleSelected = {
+                            selectedImageIds = if (image.id in selectedImageIds) {
+                                selectedImageIds - image.id
+                            } else {
+                                selectedImageIds + image.id
                             }
-                        }
-                    }
-                } else if (theme != null) {
-                    item {
-                        Text(
-                            text = "暂无主题图片",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-
-                if (newImageUris.isNotEmpty()) {
-                    item {
-                        OutlinedTextField(
-                            value = newImageLabel,
-                            onValueChange = { newImageLabel = it },
-                            label = { Text("本次上传图片标签（可选）") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = PickGoodsShape.Control
-                        )
-                    }
-                    item {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            items(newImageUris, key = { it }) { uri ->
-                                NewThemeImageCard(
-                                    uri = uri,
-                                    onRemove = {
-                                        newImageUris = newImageUris.filterNot { it == uri }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    TextButton(
-                        onClick = {
-                            imagePickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
                         },
-                        enabled = !busy,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Outlined.PhotoLibrary, contentDescription = null)
-                        Text("选择主题图片")
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = name.isNotBlank() && !busy,
-                onClick = {
-                    onConfirm(
-                        name.trim(),
-                        description.trim(),
-                        newImageUris,
-                        newImageLabel.trim().ifBlank { null }
+                        onUpdateLabel = onUpdateImageLabel,
+                        onDeleteImage = onDeleteImage
                     )
                 }
-            ) {
-                Text("保存")
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !busy) {
-                Text("取消")
+        } else if (theme != null) {
+            Text(
+                text = "暂无主题图片",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        if (newImageUris.isNotEmpty()) {
+            OutlinedTextField(
+                value = newImageLabel,
+                onValueChange = { newImageLabel = it },
+                label = { Text("本次上传图片标签（可选）") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = PickGoodsShape.Control
+            )
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(newImageUris, key = { it }) { uri ->
+                    NewThemeImageCard(
+                        uri = uri,
+                        onRemove = {
+                            newImageUris = newImageUris.filterNot { it == uri }
+                        }
+                    )
+                }
             }
         }
-    )
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(
+                onClick = {
+                    imagePickerLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                enabled = !busy,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Outlined.PhotoLibrary, contentDescription = null)
+                Text("相册")
+            }
+            TextButton(
+                onClick = {
+                    val uri = ImageCaptureUtils.createCaptureUri(context)
+                    pendingCameraUri = uri
+                    imageCameraLauncher.launch(uri)
+                },
+                enabled = !busy,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Outlined.PhotoCamera, contentDescription = null)
+                Text("拍照")
+            }
+        }
+    }
 }
 
 @Composable
 private fun ThemeImageManagerHeader(
     isLoadingDetail: Boolean,
-    isUploadingImages: Boolean
+    isUploadingImages: Boolean,
+    selectedCount: Int = 0,
+    onDeleteSelected: (() -> Unit)? = null
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
@@ -435,7 +568,15 @@ private fun ThemeImageManagerHeader(
                 style = MaterialTheme.typography.bodySmall
             )
         }
-        if (isLoadingDetail || isUploadingImages) {
+        if (selectedCount > 0 && onDeleteSelected != null) {
+            TextButton(
+                enabled = !isLoadingDetail && !isUploadingImages,
+                onClick = onDeleteSelected
+            ) {
+                Icon(Icons.Outlined.Delete, contentDescription = null)
+                Text("删除 $selectedCount 张")
+            }
+        } else if (isLoadingDetail || isUploadingImages) {
             CircularProgressIndicator(modifier = Modifier.size(22.dp))
         }
     }
@@ -447,6 +588,8 @@ private fun ExistingThemeImageCard(
     image: ThemeImage,
     baseUrl: String,
     busy: Boolean,
+    selected: Boolean,
+    onToggleSelected: () -> Unit,
     onUpdateLabel: (Int, Int, String) -> Unit,
     onDeleteImage: (Int, Int) -> Unit
 ) {
@@ -454,7 +597,7 @@ private fun ExistingThemeImageCard(
     val originalLabel = image.label.orEmpty()
 
     PickGoodsCard(
-        modifier = Modifier.size(width = 188.dp, height = 230.dp),
+        modifier = Modifier.size(width = 228.dp, height = 296.dp),
         radius = 16.dp
     ) {
         Column(
@@ -464,7 +607,7 @@ private fun ExistingThemeImageCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(118.dp)
+                    .height(178.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(Brush.linearGradient(listOf(GoldSoft, PurpleSoft))),
                 contentAlignment = Alignment.Center
@@ -475,12 +618,33 @@ private fun ExistingThemeImageCard(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
+                IconButton(
+                    enabled = !busy,
+                    onClick = onToggleSelected,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .size(30.dp)
+                        .background(
+                            color = if (selected) Gold.copy(alpha = 0.92f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
+                            shape = PickGoodsShape.Pill
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.CheckCircle,
+                        contentDescription = if (selected) "取消选择" else "选择图片",
+                        tint = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
             }
             OutlinedTextField(
                 value = label,
                 onValueChange = { label = it },
                 label = { Text("标签") },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
                 singleLine = true,
                 shape = PickGoodsShape.Control
             )
@@ -514,7 +678,7 @@ private fun NewThemeImageCard(
 ) {
     Box(
         modifier = Modifier
-            .size(108.dp)
+            .size(144.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(Brush.linearGradient(listOf(PurpleSoft, GoldSoft)))
     ) {

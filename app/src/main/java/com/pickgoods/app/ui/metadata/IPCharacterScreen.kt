@@ -1,23 +1,42 @@
 package com.pickgoods.app.ui.metadata
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -33,8 +52,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,10 +66,16 @@ import com.pickgoods.app.data.model.BgmCharacter
 import com.pickgoods.app.data.model.BgmSubject
 import com.pickgoods.app.data.model.Character
 import com.pickgoods.app.data.model.IP
-import com.pickgoods.app.ui.common.AddButton
+import com.pickgoods.app.data.util.ImageCaptureUtils
+import com.pickgoods.app.ui.common.ChoiceChipFlow
+import com.pickgoods.app.ui.common.CompactActionButton
 import com.pickgoods.app.ui.common.DeleteConfirmDialog
 import com.pickgoods.app.ui.common.EmptyMessage
 import com.pickgoods.app.ui.common.ErrorMessage
+import com.pickgoods.app.ui.common.MobileHeaderCard
+import com.pickgoods.app.ui.common.MobileFormSheet
+import com.pickgoods.app.ui.common.MobileInfoTile
+import com.pickgoods.app.ui.common.MobileSectionHeader
 import com.pickgoods.app.ui.common.PickGoodsAnimatedContent
 import com.pickgoods.app.ui.common.PickGoodsCard
 import com.pickgoods.app.ui.common.PickGoodsScreen
@@ -56,6 +83,13 @@ import com.pickgoods.app.ui.common.PickGoodsShape
 import com.pickgoods.app.ui.common.PickGoodsTopBar
 import com.pickgoods.app.ui.common.SearchField
 import com.pickgoods.app.ui.common.SimpleListCard
+import com.pickgoods.app.ui.common.SmallChoiceChip
+import com.pickgoods.app.ui.goods.components.resolveImageUrl
+import com.pickgoods.app.ui.theme.Gold
+import com.pickgoods.app.ui.theme.GoldSoft
+import com.pickgoods.app.ui.theme.PurpleSecondary
+import com.pickgoods.app.ui.theme.PurpleSoft
+import com.pickgoods.app.ui.theme.White
 
 @Composable
 fun IPCharacterScreen(
@@ -84,7 +118,11 @@ fun IPCharacterScreen(
                 )
                 PickGoodsAnimatedContent(targetState = activeTab, modifier = Modifier.weight(1f)) { tab ->
                     if (tab == 0) {
-                        IPListTab(state = state, viewModel = viewModel)
+                        IPListTab(
+                            state = state,
+                            viewModel = viewModel,
+                            onOpenCharactersTab = { activeTab = 1 }
+                        )
                     } else {
                         CharacterListTab(state = state, viewModel = viewModel)
                     }
@@ -110,11 +148,11 @@ private fun MetadataTabBar(
     PickGoodsCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        radius = 16.dp
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        radius = 14.dp
     ) {
         Row(
-            modifier = Modifier.padding(4.dp),
+            modifier = Modifier.padding(2.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -139,7 +177,7 @@ private fun MetadataTabBar(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 10.dp),
+                            .padding(horizontal = 8.dp, vertical = 7.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -156,47 +194,139 @@ private fun MetadataTabBar(
 }
 
 @Composable
-private fun IPListTab(state: MetadataUiState, viewModel: MetadataViewModel) {
+private fun IPListTab(
+    state: MetadataUiState,
+    viewModel: MetadataViewModel,
+    onOpenCharactersTab: () -> Unit
+) {
     var editing by remember { mutableStateOf<IP?>(null) }
     var showCreate by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<IP?>(null) }
+    val orderedIps = remember(state.ips) {
+        state.ips.sortedWith(compareBy<IP> { it.order }.thenBy { it.id })
+    }
+    val totalCharacterCount = remember(state.ips, state.characters) {
+        if (state.ips.any { it.characterCount != null }) {
+            state.ips.sumOf { it.characterCount ?: 0 }
+        } else {
+            state.characters.size
+        }
+    }
 
     LazyColumn(
-        contentPadding = PaddingValues(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            PickGoodsCard(radius = 18.dp) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("IP作品", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        TextButton(onClick = viewModel::openBgmImport) {
-                            Text("BGM导入")
-                        }
-                        AddButton(onClick = { showCreate = true })
+            MobileHeaderCard(
+                title = "IP作品",
+                subtitle = "${state.ips.size} 个作品",
+                trailing = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        CompactActionButton(
+                            label = "BGM",
+                            emphasized = false,
+                            onClick = viewModel::openBgmImport
+                        )
+                        CompactActionButton(label = "新增", onClick = { showCreate = true })
                     }
-                    SearchField(
-                        value = state.searchQuery,
-                        onValueChange = viewModel::onSearchChanged,
-                        placeholder = "搜索 IP、关键词..."
-                    )
+                }
+            ) {
+                SearchField(
+                    value = state.searchQuery,
+                    onValueChange = viewModel::onSearchChanged,
+                    placeholder = "搜索 IP、关键词..."
+                )
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        SmallChoiceChip(
+                            label = "全部类型",
+                            selected = state.ipSubjectTypeFilter == null,
+                            onClick = { viewModel.setIpSubjectTypeFilter(null) }
+                        )
+                    }
+                    items(ipSubjectTypeOptions) { type ->
+                        SmallChoiceChip(
+                            label = subjectTypeLabel(type),
+                            selected = state.ipSubjectTypeFilter == type,
+                            onClick = { viewModel.setIpSubjectTypeFilter(type) }
+                        )
+                    }
                 }
             }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                MobileInfoTile(
+                    label = "作品",
+                    value = state.ips.size.toString(),
+                    subtitle = "IP 总数",
+                    accent = Gold,
+                    modifier = Modifier.weight(1f)
+                )
+                MobileInfoTile(
+                    label = "角色",
+                    value = totalCharacterCount.toString(),
+                    subtitle = "可绑定角色",
+                    accent = PurpleSecondary,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        if (orderedIps.isNotEmpty()) {
+            item {
+                IPPreviewRail(
+                    ips = orderedIps.take(14),
+                    selectedId = state.selectedIpForCharacters?.id,
+                    onSelect = viewModel::loadIPCharacters
+                )
+            }
+        }
+        state.selectedIpForCharacters?.let { ip ->
+            item {
+                IPCharactersSpotlight(
+                    ip = ip,
+                    characters = state.ipCharacters,
+                    baseUrl = state.baseUrl,
+                    isLoading = state.isIpCharactersLoading,
+                    onOpenCharactersTab = {
+                        viewModel.setCharacterIpFilter(ip.id)
+                        onOpenCharactersTab()
+                    },
+                    onClear = viewModel::clearIPCharacters
+                )
+            }
+        }
+        item {
+            MobileSectionHeader(
+                title = "作品排序",
+                subtitle = "上移/下移会同步后端展示顺序",
+                accent = PurpleSecondary
+            )
         }
         when {
             state.isLoading && state.ips.isEmpty() -> item { LoadingBox() }
             state.error != null && state.ips.isEmpty() -> item { ErrorMessage(state.error, viewModel::refresh) }
             state.ips.isEmpty() -> item { EmptyMessage("暂无 IP 作品") }
-            else -> items(state.ips, key = { it.id }) { ip ->
+            else -> itemsIndexed(orderedIps, key = { _, item -> item.id }) { index, ip ->
                 val keywords = ip.keywords?.joinToString(" / ") { it.value }.orEmpty()
                 SimpleListCard(
                     title = ip.name,
                     subtitle = keywords.ifBlank { "角色 ${ip.characterCount ?: 0} 个" },
                     meta = ip.subjectType?.let { subjectTypeLabel(it) },
+                    onClick = { viewModel.loadIPCharacters(ip) },
                     onEdit = { editing = ip },
                     onDelete = { deleteTarget = ip },
                     leading = {
-                        Text("IP", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        IPTypeBadge(ip.subjectType)
+                    },
+                    trailing = {
+                        SortButtons(
+                            canMoveUp = index > 0 && !state.isSaving,
+                            canMoveDown = index < orderedIps.lastIndex && !state.isSaving,
+                            onMoveUp = { viewModel.moveIP(ip.id, -1) },
+                            onMoveDown = { viewModel.moveIP(ip.id, 1) }
+                        )
                     }
                 )
             }
@@ -235,25 +365,78 @@ private fun CharacterListTab(state: MetadataUiState, viewModel: MetadataViewMode
     var editing by remember { mutableStateOf<Character?>(null) }
     var showCreate by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<Character?>(null) }
+    val selectedIp = state.ips.firstOrNull { it.id == state.characterIpFilterId }
 
     LazyColumn(
-        contentPadding = PaddingValues(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            PickGoodsCard(radius = 18.dp) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("角色列表", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        AddButton(onClick = { showCreate = true })
+            MobileHeaderCard(
+                title = "角色列表",
+                subtitle = selectedIp?.let { "${it.name} · ${state.characters.size} 个角色" }
+                    ?: "${state.characters.size} 个角色",
+                trailing = {
+                    CompactActionButton(label = "新增", onClick = { showCreate = true })
+                }
+            ) {
+                SearchField(
+                    value = state.searchQuery,
+                    onValueChange = viewModel::onSearchChanged,
+                    placeholder = "搜索角色、所属 IP..."
+                )
+                if (state.ips.isNotEmpty()) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            SmallChoiceChip(
+                                label = "全部 IP",
+                                selected = state.characterIpFilterId == null,
+                                onClick = { viewModel.setCharacterIpFilter(null) }
+                            )
+                        }
+                        items(state.ips.take(36), key = { it.id }) { ip ->
+                            SmallChoiceChip(
+                                label = ip.name,
+                                selected = ip.id == selectedIp?.id,
+                                onClick = { viewModel.setCharacterIpFilter(ip.id) }
+                            )
+                        }
                     }
-                    SearchField(
-                        value = state.searchQuery,
-                        onValueChange = viewModel::onSearchChanged,
-                        placeholder = "搜索角色、所属 IP..."
-                    )
                 }
             }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                MobileInfoTile(
+                    label = "角色",
+                    value = state.characters.size.toString(),
+                    subtitle = selectedIp?.name ?: "当前列表",
+                    accent = Gold,
+                    modifier = Modifier.weight(1f)
+                )
+                MobileInfoTile(
+                    label = "作品",
+                    value = state.ips.size.toString(),
+                    subtitle = "可选归属",
+                    accent = PurpleSecondary,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        if (state.characters.isNotEmpty()) {
+            item {
+                CharacterPreviewRail(
+                    characters = state.characters.take(18),
+                    baseUrl = state.baseUrl
+                )
+            }
+        }
+        item {
+            MobileSectionHeader(
+                title = "角色条目",
+                subtitle = "头像、性别与所属 IP 会用于筛选和表单联动",
+                accent = PurpleSecondary
+            )
         }
         when {
             state.isLoading && state.characters.isEmpty() -> item { LoadingBox() }
@@ -267,7 +450,7 @@ private fun CharacterListTab(state: MetadataUiState, viewModel: MetadataViewMode
                     onEdit = { editing = character },
                     onDelete = { deleteTarget = character },
                     leading = {
-                        CharacterAvatar(character)
+                        CharacterAvatar(character, state.baseUrl)
                     }
                 )
             }
@@ -278,12 +461,13 @@ private fun CharacterListTab(state: MetadataUiState, viewModel: MetadataViewMode
         CharacterEditDialog(
             character = editing,
             ips = state.ips,
+            baseUrl = state.baseUrl,
             onDismiss = {
                 showCreate = false
                 editing = null
             },
-            onConfirm = { name, ipId, gender, avatar ->
-                viewModel.saveCharacter(editing, name, ipId, gender, avatar)
+            onConfirm = { name, ipId, gender, avatar, avatarUri ->
+                viewModel.saveCharacter(editing, name, ipId, gender, avatar, avatarUri)
                 showCreate = false
                 editing = null
             }
@@ -303,14 +487,257 @@ private fun CharacterListTab(state: MetadataUiState, viewModel: MetadataViewMode
 }
 
 @Composable
-private fun CharacterAvatar(character: Character) {
+private fun IPPreviewRail(
+    ips: List<IP>,
+    selectedId: Int?,
+    onSelect: (IP) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        MobileSectionHeader(
+            title = "作品速览",
+            subtitle = "按展示顺序预览作品和角色数量",
+            accent = Gold
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(ips, key = { it.id }) { ip ->
+                IPPreviewCard(
+                    ip = ip,
+                    selected = ip.id == selectedId,
+                    onClick = { onSelect(ip) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun IPPreviewCard(
+    ip: IP,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    PickGoodsCard(
+        modifier = Modifier.width(208.dp),
+        radius = 16.dp,
+        borderColor = if (selected) Gold.copy(alpha = 0.72f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
+        onClick = onClick
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(112.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Brush.linearGradient(listOf(GoldSoft, PurpleSoft))),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = subjectTypeLabel(ip.subjectType ?: 0),
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(7.dp),
+                    shape = PickGoodsShape.Pill,
+                    color = White.copy(alpha = 0.88f)
+                ) {
+                    Text(
+                        text = "${ip.characterCount ?: 0} 角",
+                        color = Gold,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                    )
+                }
+            }
+            Text(
+                text = ip.name,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = ip.keywords?.take(2)?.joinToString(" / ") { it.value }
+                    ?: "角色 ${ip.characterCount ?: 0} 个",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun IPCharactersSpotlight(
+    ip: IP,
+    characters: List<Character>,
+    baseUrl: String,
+    isLoading: Boolean,
+    onOpenCharactersTab: () -> Unit,
+    onClear: () -> Unit
+) {
+    PickGoodsCard(radius = 16.dp) {
+        Column(
+            modifier = Modifier
+                .background(Brush.linearGradient(listOf(White, PurpleSoft.copy(alpha = 0.46f), White)))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = ip.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = if (isLoading) "正在加载角色..." else "共 ${characters.size} 个角色",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                IconButton(onClick = onClear, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Outlined.Close, contentDescription = "收起角色预览")
+                }
+            }
+
+            when {
+                isLoading -> Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(26.dp), strokeWidth = 2.dp)
+                }
+                characters.isEmpty() -> Text(
+                    text = "这个 IP 下还没有角色",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(characters.take(18), key = { it.id }) { character ->
+                        CharacterPreviewCard(character = character, baseUrl = baseUrl)
+                    }
+                }
+            }
+
+            TextButton(
+                onClick = onOpenCharactersTab,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("管理这个 IP 的角色")
+                Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun IPTypeBadge(subjectType: Int?) {
     Box(
-        modifier = Modifier.size(48.dp).clip(CircleShape),
+        modifier = Modifier
+            .size(46.dp)
+            .clip(RoundedCornerShape(13.dp))
+            .background(Brush.linearGradient(listOf(GoldSoft, PurpleSoft))),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = subjectType?.let { subjectTypeLabel(it).take(2) } ?: "IP",
+            color = MaterialTheme.colorScheme.primary,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun CharacterPreviewRail(
+    characters: List<Character>,
+    baseUrl: String
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        MobileSectionHeader(
+            title = "角色速览",
+            subtitle = "头像优先展示，便于核对导入结果",
+            accent = Gold
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(characters, key = { it.id }) { character ->
+                CharacterPreviewCard(character = character, baseUrl = baseUrl)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CharacterPreviewCard(character: Character, baseUrl: String) {
+    PickGoodsCard(
+        modifier = Modifier.width(178.dp),
+        radius = 16.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            CharacterAvatar(character = character, baseUrl = baseUrl, size = 92.dp)
+            Text(
+                text = character.name,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Surface(shape = PickGoodsShape.Pill, color = PurpleSoft) {
+                Text(
+                    text = character.ip.name,
+                    color = PurpleSecondary,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CharacterAvatar(
+    character: Character,
+    baseUrl: String,
+    size: androidx.compose.ui.unit.Dp = 48.dp
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Brush.linearGradient(listOf(GoldSoft, PurpleSoft))),
         contentAlignment = Alignment.Center
     ) {
         if (!character.avatar.isNullOrBlank()) {
             AsyncImage(
-                model = character.avatar,
+                model = resolveImageUrl(character.avatar, baseUrl),
                 contentDescription = character.name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
@@ -322,73 +749,104 @@ private fun CharacterAvatar(character: Character) {
 }
 
 @Composable
+private fun SortButtons(
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
+        IconButton(
+            onClick = onMoveUp,
+            enabled = canMoveUp,
+            modifier = Modifier.size(34.dp)
+        ) {
+            Icon(Icons.Outlined.KeyboardArrowUp, contentDescription = "上移")
+        }
+        IconButton(
+            onClick = onMoveDown,
+            enabled = canMoveDown,
+            modifier = Modifier.size(34.dp)
+        ) {
+            Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "下移")
+        }
+    }
+}
+
+@Composable
 private fun BgmImportDialog(
     state: MetadataUiState,
     viewModel: MetadataViewModel
 ) {
-    AlertDialog(
-        onDismissRequest = viewModel::closeBgmImport,
-        title = { Text("从 Bangumi 导入角色") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 620.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                state.error?.let { message ->
-                    Text(
-                        text = message,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                when (state.bgmStep) {
-                    BgmImportStep.Search -> BgmSearchStep(state, viewModel)
-                    BgmImportStep.Searching -> BgmLoadingStep("正在搜索 Bangumi...")
-                    BgmImportStep.Subjects -> BgmSubjectsStep(state, viewModel)
-                    BgmImportStep.LoadingCharacters -> BgmLoadingStep("正在获取角色列表...")
-                    BgmImportStep.Results -> BgmCharactersStep(state, viewModel)
-                    BgmImportStep.Importing -> BgmLoadingStep("正在导入角色...")
-                    BgmImportStep.Imported -> BgmImportedStep(state)
-                }
-            }
-        },
-        confirmButton = {
+    val busy = state.bgmStep in setOf(
+        BgmImportStep.Searching,
+        BgmImportStep.LoadingCharacters,
+        BgmImportStep.Importing
+    )
+    val confirmText = when (state.bgmStep) {
+        BgmImportStep.Search -> "搜索"
+        BgmImportStep.Results -> "导入 (${state.bgmSelectedCharacterIndexes.size})"
+        BgmImportStep.Imported -> "完成"
+        else -> "处理中"
+    }
+    val confirmEnabled = when (state.bgmStep) {
+        BgmImportStep.Search -> state.bgmSearchQuery.isNotBlank()
+        BgmImportStep.Results -> state.bgmSelectedCharacterIndexes.isNotEmpty()
+        BgmImportStep.Imported -> true
+        else -> false
+    }
+
+    MobileFormSheet(
+        title = "从 Bangumi 导入角色",
+        subtitle = "先搜索作品，再选择需要导入的角色",
+        confirmText = confirmText,
+        confirmEnabled = confirmEnabled,
+        isBusy = busy,
+        onDismiss = viewModel::closeBgmImport,
+        onConfirm = {
             when (state.bgmStep) {
-                BgmImportStep.Search -> {
-                    TextButton(
-                        enabled = state.bgmSearchQuery.isNotBlank(),
-                        onClick = viewModel::searchBgmSubjects
-                    ) {
-                        Text("搜索")
-                    }
-                }
-                BgmImportStep.Results -> {
-                    TextButton(
-                        enabled = state.bgmSelectedCharacterIndexes.isNotEmpty(),
-                        onClick = viewModel::importSelectedBgmCharacters
-                    ) {
-                        Text("确认导入 (${state.bgmSelectedCharacterIndexes.size})")
-                    }
-                }
-                BgmImportStep.Imported -> {
-                    TextButton(onClick = viewModel::closeBgmImport) {
-                        Text("完成")
-                    }
-                }
-                else -> Unit
-            }
-        },
-        dismissButton = {
-            when (state.bgmStep) {
-                BgmImportStep.Subjects -> TextButton(onClick = { viewModel.resetBgmImport(keepOpen = true) }) { Text("返回搜索") }
-                BgmImportStep.Results -> TextButton(onClick = { viewModel.searchBgmSubjects() }) { Text("重选作品") }
-                BgmImportStep.Search, BgmImportStep.Imported -> TextButton(onClick = viewModel::closeBgmImport) { Text("取消") }
+                BgmImportStep.Search -> viewModel.searchBgmSubjects()
+                BgmImportStep.Results -> viewModel.importSelectedBgmCharacters()
+                BgmImportStep.Imported -> viewModel.closeBgmImport()
                 else -> Unit
             }
         }
-    )
+    ) {
+        state.error?.let { message ->
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        when (state.bgmStep) {
+            BgmImportStep.Search -> BgmSearchStep(state, viewModel)
+            BgmImportStep.Searching -> BgmLoadingStep("正在搜索 Bangumi...")
+            BgmImportStep.Subjects -> BgmSubjectsStep(state, viewModel)
+            BgmImportStep.LoadingCharacters -> BgmLoadingStep("正在获取角色列表...")
+            BgmImportStep.Results -> BgmCharactersStep(state, viewModel)
+            BgmImportStep.Importing -> BgmLoadingStep("正在导入角色...")
+            BgmImportStep.Imported -> BgmImportedStep(state)
+        }
+        when (state.bgmStep) {
+            BgmImportStep.Subjects -> TextButton(
+                onClick = { viewModel.resetBgmImport(keepOpen = true) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("返回搜索")
+            }
+            BgmImportStep.Results -> TextButton(
+                onClick = { viewModel.searchBgmSubjects() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("重选作品")
+            }
+            else -> Unit
+        }
+    }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BgmSearchStep(
     state: MetadataUiState,
@@ -405,7 +863,10 @@ private fun BgmSearchStep(
             shape = PickGoodsShape.Control
         )
         Text("作品类型", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             bgmSubjectTypes.forEach { item ->
                 FilterChip(
                     selected = state.bgmSubjectType == item.value,
@@ -419,6 +880,13 @@ private fun BgmSearchStep(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall
         )
+        TextButton(
+            onClick = viewModel::searchBgmCharactersDirect,
+            enabled = state.bgmSearchQuery.isNotBlank(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("直接按作品名获取角色")
+        }
     }
 }
 
@@ -433,11 +901,10 @@ private fun BgmSubjectsStep(
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold
         )
-        LazyColumn(
-            modifier = Modifier.heightIn(max = 420.dp),
+        Column(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(state.bgmSubjects, key = { it.id }) { subject ->
+            state.bgmSubjects.take(30).forEach { subject ->
                 BgmSubjectRow(
                     subject = subject,
                     onClick = { viewModel.selectBgmSubject(subject) }
@@ -452,13 +919,21 @@ private fun BgmSubjectRow(
     subject: BgmSubject,
     onClick: () -> Unit
 ) {
-    SimpleListCard(
-        title = subject.nameCn?.takeIf { it.isNotBlank() } ?: subject.name,
-        subtitle = subject.name.takeIf { it != subject.nameCn } ?: subject.typeName,
-        meta = subject.typeName,
-        onClick = onClick,
-        leading = {
-            Box(modifier = Modifier.size(56.dp).clip(PickGoodsShape.Control), contentAlignment = Alignment.Center) {
+    PickGoodsCard(radius = 16.dp, onClick = onClick) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(9.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(76.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Brush.linearGradient(listOf(GoldSoft, PurpleSoft))),
+                contentAlignment = Alignment.Center
+            ) {
                 if (!subject.image.isNullOrBlank()) {
                     AsyncImage(
                         model = subject.image,
@@ -470,8 +945,33 @@ private fun BgmSubjectRow(
                     Text("番", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
             }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = subject.nameCn?.takeIf { it.isNotBlank() } ?: subject.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subject.name.takeIf { it != subject.nameCn } ?: subject.typeName ?: "作品",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Surface(shape = PickGoodsShape.Pill, color = GoldSoft) {
+                    Text(
+                        text = subject.typeName ?: "作品",
+                        color = Gold,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
         }
-    )
+    }
 }
 
 @Composable
@@ -505,11 +1005,10 @@ private fun BgmCharactersStep(
             singleLine = true,
             shape = PickGoodsShape.Control
         )
-        LazyColumn(
-            modifier = Modifier.heightIn(max = 420.dp),
+        Column(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(filtered, key = { it.first }) { (index, character) ->
+            filtered.take(80).forEach { (index, character) ->
                 BgmCharacterRow(
                     character = character,
                     selected = index in state.bgmSelectedCharacterIndexes,
@@ -526,13 +1025,23 @@ private fun BgmCharacterRow(
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    PickGoodsCard(radius = 14.dp, onClick = onClick) {
+    PickGoodsCard(
+        radius = 16.dp,
+        borderColor = if (selected) Gold.copy(alpha = 0.72f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+        onClick = onClick
+    ) {
         Row(
             modifier = Modifier.padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Box(modifier = Modifier.size(48.dp).clip(CircleShape), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .size(62.dp)
+                    .clip(CircleShape)
+                    .background(Brush.linearGradient(listOf(GoldSoft, PurpleSoft))),
+                contentAlignment = Alignment.Center
+            ) {
                 if (!character.avatar.isNullOrBlank()) {
                     AsyncImage(
                         model = character.avatar,
@@ -545,7 +1054,13 @@ private fun BgmCharacterRow(
                 }
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(character.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    character.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
                 Text(
                     character.relation ?: "角色",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -600,77 +1115,184 @@ private fun IPEditDialog(
 ) {
     var name by remember(ip?.id) { mutableStateOf(ip?.name.orEmpty()) }
     var keywords by remember(ip?.id) { mutableStateOf(ip?.keywords?.joinToString(", ") { it.value }.orEmpty()) }
-    var typeText by remember(ip?.id) { mutableStateOf(ip?.subjectType?.toString().orEmpty()) }
+    var subjectType by remember(ip?.id) { mutableStateOf(ip?.subjectType) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (ip == null) "新增 IP" else "编辑 IP") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("IP 名称") }, singleLine = true)
-                OutlinedTextField(value = keywords, onValueChange = { keywords = it }, label = { Text("关键词，用逗号分隔") })
-                OutlinedTextField(
-                    value = typeText,
-                    onValueChange = { typeText = it.filter(Char::isDigit) },
-                    label = { Text("作品类型") },
-                    supportingText = { Text("2 动画 / 4 游戏 / 6 三次元等，可留空") },
-                    singleLine = true
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(enabled = name.isNotBlank(), onClick = { onConfirm(name.trim(), keywords.trim(), typeText.toIntOrNull()) }) {
-                Text("保存")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
-    )
+    MobileFormSheet(
+        title = if (ip == null) "新增 IP" else "编辑 IP",
+        subtitle = "关键词会用于搜索和 Bangumi 导入匹配",
+        confirmEnabled = name.isNotBlank(),
+        onDismiss = onDismiss,
+        onConfirm = { onConfirm(name.trim(), keywords.trim(), subjectType) }
+    ) {
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text("IP 名称") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = PickGoodsShape.Control
+        )
+        OutlinedTextField(
+            value = keywords,
+            onValueChange = { keywords = it },
+            label = { Text("关键词，用逗号分隔") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 2,
+            shape = PickGoodsShape.Control
+        )
+        ChoiceChipFlow(
+            title = "作品类型",
+            options = ipSubjectTypeOptions,
+            selected = subjectType,
+            label = { subjectTypeLabel(it) },
+            onSelected = { subjectType = it },
+            emptyLabel = "不设置"
+        )
+    }
 }
 
 @Composable
 private fun CharacterEditDialog(
     character: Character?,
     ips: List<IP>,
+    baseUrl: String,
     onDismiss: () -> Unit,
-    onConfirm: (String, Int, String, String?) -> Unit
+    onConfirm: (String, Int, String, String?, String?) -> Unit
 ) {
     var name by remember(character?.id) { mutableStateOf(character?.name.orEmpty()) }
-    var ipIdText by remember(character?.id) { mutableStateOf((character?.ipId ?: character?.ip?.id ?: ips.firstOrNull()?.id)?.toString().orEmpty()) }
+    var selectedIpId by remember(character?.id, ips) { mutableStateOf(character?.ipId ?: character?.ip?.id ?: ips.firstOrNull()?.id) }
     var avatar by remember(character?.id) { mutableStateOf(character?.avatar.orEmpty()) }
+    var selectedAvatarUri by remember(character?.id) { mutableStateOf<String?>(null) }
+    var pendingAvatarCameraUri by remember(character?.id) { mutableStateOf<Uri?>(null) }
     var gender by remember(character?.id) { mutableStateOf(character?.gender ?: "other") }
+    val context = LocalContext.current
+    val avatarPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        selectedAvatarUri = uri?.toString()
+        if (uri != null) avatar = ""
+    }
+    val avatarCameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            pendingAvatarCameraUri?.let { uri ->
+                selectedAvatarUri = uri.toString()
+                avatar = ""
+            }
+        }
+        pendingAvatarCameraUri = null
+    }
+    val avatarPreview = selectedAvatarUri ?: resolveImageUrl(avatar, baseUrl)
+    val selectedIp = ips.firstOrNull { it.id == selectedIpId }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (character == null) "新增角色" else "编辑角色") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("角色名称") }, singleLine = true)
-                OutlinedTextField(
-                    value = ipIdText,
-                    onValueChange = { ipIdText = it.filter(Char::isDigit) },
-                    label = { Text("所属 IP ID") },
-                    supportingText = {
-                        val candidates = ips.take(4).joinToString(" / ") { "${it.id}:${it.name}" }
-                        if (candidates.isNotBlank()) Text("可选：$candidates")
-                    },
-                    singleLine = true
-                )
+    MobileFormSheet(
+        title = if (character == null) "新增角色" else "编辑角色",
+        subtitle = selectedIp?.name ?: "选择所属 IP 后再保存角色",
+        confirmEnabled = name.isNotBlank() && selectedIpId != null,
+        onDismiss = onDismiss,
+        onConfirm = {
+            selectedIpId?.let { ipId ->
+                onConfirm(name.trim(), ipId, gender, avatar.trim(), selectedAvatarUri)
+            }
+        }
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(76.dp)
+                    .clip(CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                if (avatarPreview != null) {
+                    AsyncImage(
+                        model = avatarPreview,
+                        contentDescription = "角色头像",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text(
+                        text = name.take(1).ifBlank { "角" },
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("male" to "男", "female" to "女", "other" to "其他").forEach { item ->
-                        FilterChip(selected = gender == item.first, onClick = { gender = item.first }, label = { Text(item.second) })
+                    TextButton(
+                        onClick = {
+                            avatarPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Outlined.PhotoLibrary, contentDescription = null)
+                        Text(if (avatarPreview == null) "相册" else "更换")
+                    }
+                    TextButton(
+                        onClick = {
+                            val uri = ImageCaptureUtils.createCaptureUri(context)
+                            pendingAvatarCameraUri = uri
+                            avatarCameraLauncher.launch(uri)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Outlined.PhotoCamera, contentDescription = null)
+                        Text("拍照")
                     }
                 }
-                OutlinedTextField(value = avatar, onValueChange = { avatar = it }, label = { Text("头像 URL（可选）") })
+                if (selectedAvatarUri != null) {
+                    TextButton(onClick = { selectedAvatarUri = null }) {
+                        Icon(Icons.Outlined.Close, contentDescription = null)
+                        Text("清除选择")
+                    }
+                }
             }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = name.isNotBlank() && ipIdText.toIntOrNull() != null,
-                onClick = { onConfirm(name.trim(), ipIdText.toInt(), gender, avatar.trim()) }
-            ) { Text("保存") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
-    )
+        }
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text("角色名称") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = PickGoodsShape.Control
+        )
+        ChoiceChipFlow(
+            title = "所属 IP",
+            options = ips,
+            selected = selectedIp,
+            label = { it.name },
+            onSelected = { selectedIpId = it?.id },
+            maxItems = 80
+        )
+        ChoiceChipFlow(
+            title = "角色性别",
+            options = genderOptions,
+            selected = genderOptions.firstOrNull { it.value == gender },
+            label = { it.label },
+            onSelected = { selected -> selected?.let { gender = it.value } }
+        )
+        OutlinedTextField(
+            value = avatar,
+            onValueChange = {
+                avatar = it
+                selectedAvatarUri = null
+            },
+            label = { Text("头像 URL（可选）") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = PickGoodsShape.Control
+        )
+    }
 }
 
 @Composable
@@ -707,6 +1329,16 @@ private val bgmSubjectTypes = listOf(
     BgmSubjectTypeItem("游戏", 4),
     BgmSubjectTypeItem("书籍", 1),
     BgmSubjectTypeItem("三次元", 6)
+)
+
+private val ipSubjectTypeOptions = listOf(2, 4, 1, 3, 6)
+
+private data class GenderOption(val label: String, val value: String)
+
+private val genderOptions = listOf(
+    GenderOption("男", "male"),
+    GenderOption("女", "female"),
+    GenderOption("其他", "other")
 )
 
 private fun bgmImportStatusLabel(status: String): String {
